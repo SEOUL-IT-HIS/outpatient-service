@@ -1,0 +1,87 @@
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    context-path: /
+
+app:
+  api:
+    host: localhost
+    port: ${server.port}
+    base-url: http://${app.api.host}:${server.port}
+    endpoints:
+      outpatient: /api/outpatient
+      health: /api/outpatient/health
+  cors:
+    allowed-origin-patterns:
+      - http://localhost:3000
+      - http://127.0.0.1:3000
+      - http://192.168.*:*
+  service:
+    code: OPD
+    name: outpatient-service
+  services:
+    patient:
+      base-url: ${PATIENT_BASE_URL:http://localhost:8082}
+      # true면 PAT 미기동 로컬 stub. 실제 연동 시 false
+      stub-enabled: ${PATIENT_STUB_ENABLED:true}
+    admin:
+      base-url: ${ADMIN_BASE_URL:http://localhost:8083}
+      stub-enabled: ${ADMIN_STUB_ENABLED:true}
+
+spring:
+  application:
+    name: outpatient-service
+  config:
+    import: optional:classpath:application-local.yml
+  datasource:
+    url: ${DB_URL:jdbc:oracle:thin:@seoulit.pe.kr:1521/FREEPDB1}
+    username: ${DB_USERNAME:outpatient}
+    password: ${DB_PASSWORD:outpatient}
+    driver-class-name: oracle.jdbc.OracleDriver
+    hikari:
+      pool-name: outpatient-hikari
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.OracleDialect
+        format_sql: true
+        jdbc:
+          time_zone: Asia/Seoul
+  jackson:
+    time-zone: Asia/Seoul
+
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+
+logging:
+  level:
+    root: INFO
+    kr.co.seoulit.his: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: TRACE
