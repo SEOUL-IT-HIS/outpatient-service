@@ -4,10 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
 import lombok.Setter;
 
-/**
- * [진료 배정 등록 요청] POST /api/outpatient/encounters
- * RCP 대기 환자(receptionId) 한 명을 OPD가 담당의/진료과에 배정해서 OUTPATIENT_ENCOUNTER에 등록할 때 사용
- */
+//[진료 배정 등록 요청] POST /api/outpatient/encounters
 @Getter
 @Setter
 public class EncounterCreateDto {

@@ -19,20 +19,18 @@ public class MedicalRecordController {
 
     private final OutpatientCareService outpatientCareService;
 
-    // --- [진료기록 목록 조회] GET /api/outpatient/records?encounterId={id} ---
+    // --- [진료기록 목록 조회] GET /api/outpatient/records?keyword={keyword} ---
     @GetMapping
     public ApiResponse<List<MedicalRecordDto>> getRecords(
-            @RequestParam String encounterId
-    ) {
-        List<MedicalRecordDto> response = outpatientCareService.getRecords(encounterId);
+            @RequestParam(name = "keyword", required = false) String keyword) { // name="keyword" 명시!
+
+        List<MedicalRecordDto> response = outpatientCareService.getRecords(keyword);
         return ApiResponse.success(response);
     }
 
     // --- [진료기록 상세 조회] GET /api/outpatient/records/{recordId} ---
     @GetMapping("/{recordId}")
-    public ApiResponse<MedicalRecordDto> getRecord(
-            @PathVariable String recordId
-    ) {
+    public ApiResponse<MedicalRecordDto> getRecord(@PathVariable String recordId) {
         MedicalRecordDto response = outpatientCareService.getRecord(recordId);
         return ApiResponse.success(response);
     }

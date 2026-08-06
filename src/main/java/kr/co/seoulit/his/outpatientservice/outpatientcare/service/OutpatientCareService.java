@@ -16,7 +16,7 @@ public interface OutpatientCareService {
     EncounterDto createEncounter(EncounterCreateDto request);
 
     //진료 ID(encounterId) 기준 진료 기록 목록 조회
-    List<MedicalRecordDto> getRecords(String encounterId);
+    List<MedicalRecordDto> getRecords(String keyword);
 
     //진료기록 ID(recordId) 기준 단건 상세 조회
     MedicalRecordDto getRecord(String recordId);

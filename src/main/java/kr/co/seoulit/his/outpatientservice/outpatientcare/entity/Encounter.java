@@ -7,11 +7,7 @@ import lombok.Setter;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-/**
- * JPA Entity — OUTPATIENT.OUTPATIENT_ENCOUNTER 테이블 매핑 (실제 DB 컬럼 기준, 2026-07-28 확인)
- * 지금은 getEncounters()가 RCP GET /receptions/waiting만 사용해서 이 엔티티는 조회에 관여하지 않는다.
- * OPD가 담당의/진료과 배정, 진료상태를 관리하는 장부로 쓸 예정이라(추후 스프린트) 지우지 않고 남겨둔다.
- */
+
 @Entity
 @Table(schema = "OUTPATIENT", name = "OUTPATIENT_ENCOUNTER")
 @Getter

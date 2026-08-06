@@ -25,18 +25,14 @@ public class EncounterController {
 
     // --- [외래 환자/진료 목록 조회] GET /api/outpatient/encounters ---
     @GetMapping
-    public ApiResponse<List<EncounterDto>> getEncounters(
-            @ModelAttribute EncounterSearchDto request
-    ) {
+    public ApiResponse<List<EncounterDto>> getEncounters(@ModelAttribute EncounterSearchDto request) {
         List<EncounterDto> response = outpatientCareService.getEncounters(request);
         return ApiResponse.success(response);
     }
 
     // --- [RCP 대기 환자 -> OPD 진료 배정 등록] POST /api/outpatient/encounters ---
     @PostMapping
-    public ApiResponse<EncounterDto> createEncounter(
-            @Valid @RequestBody EncounterCreateDto request
-    ) {
+    public ApiResponse<EncounterDto> createEncounter(@Valid @RequestBody EncounterCreateDto request) {
         EncounterDto response = outpatientCareService.createEncounter(request);
         return ApiResponse.success(response);
     }
