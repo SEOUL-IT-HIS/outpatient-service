@@ -23,6 +23,7 @@ public interface OutpatientCareMapper {
     List<EncounterDto> toEncounterDtoList(List<Encounter> entityList);
 
     // --- ReceptionDto (RCP 대기환자) 변환 ---
+    // encounterId는 아직 OPD가 담당의/진료과를 배정하기 전이라 존재하지 않는다 - receptionId를 대신 넣지 않는다
     @Mapping(target = "encounterId", ignore = true)
     @Mapping(target = "departmentCode", source = "deptCode")
     @Mapping(target = "doctorId", ignore = true)

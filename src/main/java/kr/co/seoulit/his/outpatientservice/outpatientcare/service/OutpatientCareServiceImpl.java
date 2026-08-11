@@ -55,7 +55,7 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
 
         List<ReceptionDto> waitingList;
         try {
-            String url = "http://localhost:8081/receptions/waiting?deptCode=" + deptCode;
+            String url = "http://localhost:8080/receptions/waiting?deptCode=" + deptCode;
             ReceptionDto[] response = restTemplate.getForObject(url, ReceptionDto[].class);
             waitingList = (response != null) ? Arrays.asList(response) : Collections.emptyList();
         } catch (Exception e) {
@@ -173,6 +173,11 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
                 ? medicalRecordRepository.findByOrderByCreatedAtDesc(PageRequest.of(0, 50))
                 : medicalRecordRepository.findAll();
 
+        // 1-1. 비활성화(DELETED)된 기록은 목록에서 제외
+        records = records.stream()
+                .filter(r -> !"DELETED".equals(r.getStatus()))
+                .collect(Collectors.toList());
+
         // 2. 환자 정보 일괄 조회를 위한 patientId 추출
         Map<String, PatientApiDto.PatientSummary> patientMap = Collections.emptyMap();
         List<String> patientIds = records.stream()
@@ -228,6 +233,11 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
         MedicalRecord record = medicalRecordRepository.findById(recordId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "진료 기록을 찾을 수 없습니다. recordId=" + recordId));
 
+        // 비활성화(DELETED)된 기록은 없는 것과 동일하게 취급
+        if ("DELETED".equals(record.getStatus())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "진료 기록을 찾을 수 없습니다. recordId=" + recordId);
+        }
+
         log.info("[AUDIT LOG] 진료 기록 상세 열람 - recordId={}", recordId);
         recordAudit("MEDICAL_RECORD", String.valueOf(recordId), "VIEW");
 
@@ -271,5 +281,120 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
                 action,
                 "외래 진료 업무 조회"
         ));
+    }
+
+    // 진료기록 등록
+    @Override
+    @Transactional
+    public MedicalRecordDto createRecord(MedicalRecordCreateDto request) {
+        // 1. 접수 정보(Encounter) 조회
+        Encounter encounter = encounterRepository.findById(request.getEncounterId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "존재하지 않는 외래 접수 건입니다. encounterId=" + request.getEncounterId()));
+
+        // 2. 요청 DTO를 엔티티로 변환 및 값 세팅
+        MedicalRecord record = new MedicalRecord();
+        record.setId(UUID.randomUUID().toString()); // UUID 수동 할당
+        record.setEncounter(encounter);
+
+        //Encounter에 있는 담당 의사 ID를 가져와서 세팅 (혹은 encounter.getDoctorId() 메서드명에 맞게 조절)
+        record.setDoctorId(encounter.getDoctorId());
+
+        record.setChiefComplaint(request.getChiefComplaint());
+        record.setExaminationNote(request.getExaminationNote());
+
+        //누락되었던 진료소견 및 치료계획 매핑 추가!
+        record.setAssessmentNote(request.getAssessmentNote());
+        record.setPlanNote(request.getPlanNote());
+
+        record.setStatus("COMPLETED"); // 필요에 따라 수정
+
+        LocalDateTime now = LocalDateTime.now();
+        record.setCreatedAt(now);
+        record.setUpdatedAt(now);
+
+        // 3. DB에 저장
+        MedicalRecord savedRecord = medicalRecordRepository.save(record);
+
+        log.info("[진료기록 등록 완료] recordId={}, encounterId={}",
+                savedRecord.getId(), encounter.getId());
+
+        // 4. MapStruct 맵퍼를 사용하여 DTO로 변환
+        MedicalRecordDto dto = outpatientCareMapper.toMedicalRecordDto(savedRecord);
+
+        // 5. 환자 정보(PAT API) 연동하여 이름/번호 채우기
+        if (dto.getPatientId() != null) {
+            try {
+                patientClient.getPatient(dto.getPatientId()).ifPresent(patient -> {
+                    dto.setPatientNo(patient.patientNo());
+                    String rawName = patient.patientName();
+                    dto.setPatientName(rawName != null && rawName.startsWith("환자") ? rawName.substring(2) : rawName);
+                });
+            } catch (Exception e) {
+                log.error("[PAT 연동 실패] 환자 기본정보 단건조회 실패: {}", e.getMessage());
+            }
+        }
+
+        return dto;
+    }
+
+    // --- [진료기록 수정] ---
+    @Override
+    @Transactional
+    public MedicalRecordDto updateRecord(String recordId, MedicalRecordCreateDto request) {
+        // 1. 기존 진료기록 조회 (없으면 예외 발생)
+        MedicalRecord record = medicalRecordRepository.findById(recordId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "수정할 진료 기록을 찾을 수 없습니다. recordId=" + recordId));
+
+        // 1-1. 비활성화(DELETED)된 기록은 수정 불가
+        if ("DELETED".equals(record.getStatus())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "비활성화된 진료 기록은 수정할 수 없습니다. recordId=" + recordId);
+        }
+
+        // 2. 전달받은 수정 요청 데이터(DTO) 값 반영
+        record.setChiefComplaint(request.getChiefComplaint());
+        record.setExaminationNote(request.getExaminationNote());
+        record.setAssessmentNote(request.getAssessmentNote());
+        record.setPlanNote(request.getPlanNote());
+
+        // 수정 일시 갱신
+        record.setUpdatedAt(LocalDateTime.now());
+
+        log.info("[진료기록 수정 완료] recordId={}", record.getId());
+
+        // 3. 엔티티를 DTO로 변환
+        MedicalRecordDto dto = outpatientCareMapper.toMedicalRecordDto(record);
+
+        // 4. 환자 정보(PAT API) 연동하여 이름/번호 채우기 (목록/상세 조회와 동일한 로직)
+        if (dto.getPatientId() != null) {
+            try {
+                patientClient.getPatient(dto.getPatientId()).ifPresent(patient -> {
+                    dto.setPatientNo(patient.patientNo());
+                    String rawName = patient.patientName();
+                    dto.setPatientName(rawName != null && rawName.startsWith("환자") ? rawName.substring(2) : rawName);
+                });
+            } catch (Exception e) {
+                log.error("[PAT 연동 실패] 환자 기본정보 단건조회 실패: {}", e.getMessage());
+            }
+        }
+
+        return dto;
+    }
+
+    // 진료기록 비활성화
+    @Override
+    @Transactional
+    public void deactivateRecord(String recordId, String userId) {
+        // 기존 진료 기록 조회
+        MedicalRecord record = medicalRecordRepository.findById(recordId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "비활성화할 진료 기록을 찾을 수 없습니다. recordId=" + recordId));
+
+        // 상태값을 'DELETED'로 변경하고 수정 일시 갱신
+        record.setStatus("DELETED");
+        record.setUpdatedAt(LocalDateTime.now());
+
+        // 저장
+        medicalRecordRepository.save(record);
+
+        log.info("[진료기록 비활성화 완료] recordId={}, 처리자={}", recordId, userId);
     }
 }
