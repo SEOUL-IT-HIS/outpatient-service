@@ -25,5 +25,4 @@ public class MedicalRecordDto {
          private String doctorId;          // 담당의 ID
          private String doctorName;        // 담당의 이름
          private String departmentName;    // 진료과명 (예: 내과)
-        private List<String> fileNames;       // 파일명들을 담는 리스트
 }

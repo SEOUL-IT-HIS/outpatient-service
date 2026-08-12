@@ -60,7 +60,4 @@ public class MedicalRecordController {
 
         return ApiResponse.success("진료기록이 성공적으로 비활성화되었습니다.");
     }
-
-    // 진료기록 첨부파일
-
 }
