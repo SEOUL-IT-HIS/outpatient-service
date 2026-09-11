@@ -15,7 +15,7 @@ public class MedicalRecord {
 
     @Id
     @Column(name = "RECORD_ID", length = 36)
-    private String id; // 진료기록 ID (UUID, DB에서 채번)
+    private String recordId; // 진료기록 ID (UUID, DB에서 채번)
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "ENCOUNTER_ID", nullable = false)

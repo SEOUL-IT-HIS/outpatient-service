@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="kr.co.seoulit.his.outpatientservice.common.mybatis.ProcMapper">
+
+    <!--
+      id: 인터페이스의 메서드명과 일치해야됨
+      CALLABLE: 일반 SQL문이 아닌 프로시저 호출용
+      map: 파라미터를 Map 객체 형태로 주고받겠다고 설정
+    -->
+    <select id="countByEncounter" statementType="CALLABLE" parameterType="map">
+        {
+            -- 프로시저 호출
+            CALL OUTPATIENT.PROC_COUNT_BY_ENCOUNTER(
+                -- in변수 : map에서 진료id 가져와서 파라미터로 넘김
+                #{encounterId, mode=IN, jdbcType=VARCHAR},
+                -- out변수: 프로시저 실행 완료후 결과값을 map의 진료건수로 자동주입
+                #{recordCount, mode=OUT, jdbcType=NUMERIC}
+            )
+        }
+    </select>
+
+</mapper>

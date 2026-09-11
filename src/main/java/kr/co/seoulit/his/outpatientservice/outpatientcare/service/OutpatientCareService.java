@@ -1,16 +1,11 @@
 package kr.co.seoulit.his.outpatientservice.outpatientcare.service;
 
+import kr.co.seoulit.his.outpatientservice.common.client.reception.ReceptionEventDto;
 import kr.co.seoulit.his.outpatientservice.outpatientcare.dto.*;
 
 import java.util.List;
 
 public interface OutpatientCareService {
-
-    //당일 외래 진료/환자 목록 조회
-    List<EncounterDto> getEncounters(EncounterSearchDto request);
-
-    //RCP 대기 환자를 담당의/진료과에 배정해서 OPD 진료(Encounter)로 등록
-    EncounterDto createEncounter(EncounterCreateDto request);
 
     //진료 ID(encounterId) 기준 진료 기록 목록 조회
     List<MedicalRecordDto> getRecords(String keyword);
@@ -26,4 +21,10 @@ public interface OutpatientCareService {
 
     //진료기록 비활성화
     void deactivateRecord(String recordId, String userId);
+
+    // 접수(RCP) 이벤트 수신 시 Encounter 생성/갱신
+    void registerEncounter(ReceptionEventDto.ReceptionData data);
+
+    // 당일 외래 환자 목록 조회
+    List<EncounterDto> getTodayEncounters();
 }

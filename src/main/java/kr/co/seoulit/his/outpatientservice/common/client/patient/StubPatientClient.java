@@ -32,10 +32,6 @@ public class StubPatientClient implements PatientClient {
 
     private PatientApiDto.PatientSummary sample(String patientId) {
         String id = patientId != null ? patientId : "UNKNOWN";
-        return new PatientApiDto.PatientSummary(
-                id,
-                "P" + id,
-                "환자" + id
-        );
+        return new PatientApiDto.PatientSummary(id, "환자" + id);
     }
 }

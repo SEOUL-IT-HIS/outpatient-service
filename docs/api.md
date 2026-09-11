@@ -12,9 +12,11 @@
 
 | 대상 | API | 용도 |
 | --- | --- | --- |
-| PAT | `POST /api/v1/patients/batch-query` | 목록 환자명/번호 일괄 조회 (N+1 방지) |
-| PAT | `GET /api/v1/patients/{patientId}` | 단건 환자 표시 정보 |
+| PAT | `POST /api/patient/batch` | 목록 환자명/번호 일괄 조회 (N+1 방지) |
+| PAT | `GET /api/patient/{patientId}` | 단건 환자 표시 정보 |
 | ADM | `POST /api/admin/personalInfoAccessHistories` | 개인정보 열람 감사(최소, 실패해도 업무 조회 유지) |
+| ADM | `GET /api/commonCodeGroup/list` | 공통코드 그룹 전체 목록 (서버 구동 시 1회, `CommonCodeCache`가 적재) |
+| ADM | `GET /api/commonCodeItem/list?groupId=` | 그룹별 공통코드 항목 목록 (서버 구동 시 1회, `CommonCodeCache`가 적재) |
 
 로컬 기본: `app.services.patient.stub-enabled=true`, `admin.stub-enabled=true`  
 실제 연동: 환경변수 `PATIENT_STUB_ENABLED=false`, `ADMIN_STUB_ENABLED=false` + base-url 설정.

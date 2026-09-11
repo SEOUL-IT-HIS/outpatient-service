@@ -22,8 +22,8 @@ import java.util.stream.Collectors;
 
 /**
  * Patient(PAT) Consumer.
- * - GET /api/v1/patients/{patientId}
- * - POST /api/v1/patients/batch-query  (N+1 방지, 목록 화면용)
+ * - GET /api/patient/{patientId}
+ * - POST /api/patient/batch  (N+1 방지, 목록 화면용)
  */
 @Slf4j
 @Component
@@ -48,13 +48,14 @@ public class PatientClientImpl implements PatientClient {
         }
         try {
             JsonNode body = patientRestClient.get()
-                    .uri("/api/v1/patients/{patientId}", patientId)
+                    .uri("/api/patient/{patientId}", patientId)
                     .retrieve()
                     .body(JsonNode.class);
             return Optional.ofNullable(extractOne(body));
         } catch (RestClientException ex) {
             log.warn("[PAT] getPatient failed patientId={}, message={}", patientId, ex.getMessage());
-            throw new BusinessException(ErrorCode.EXTERNAL_API_ERROR, "환자 서비스 단건 조회에 실패했습니다.");
+            // 환자 서비스 단건 조회에 실패했습니다.
+            throw new BusinessException(ErrorCode.EXTERNAL_API_ERROR, "Failed to fetch patient information.");
         }
     }
 
@@ -66,7 +67,7 @@ public class PatientClientImpl implements PatientClient {
         List<String> distinctIds = patientIds.stream().distinct().toList();
         try {
             JsonNode body = patientRestClient.post()
-                    .uri("/api/v1/patients/batch-query")
+                    .uri("/api/patient/batch")
                     .body(new PatientApiDto.BatchQueryRequest(distinctIds))
                     .retrieve()
                     .body(JsonNode.class);
@@ -77,7 +78,8 @@ public class PatientClientImpl implements PatientClient {
                     .collect(Collectors.toMap(PatientApiDto.PatientSummary::patientId, Function.identity(), (a, b) -> a));
         } catch (RestClientException ex) {
             log.warn("[PAT] batch-query failed ids={}, message={}", distinctIds, ex.getMessage());
-            throw new BusinessException(ErrorCode.EXTERNAL_API_ERROR, "환자 서비스 일괄 조회에 실패했습니다.");
+            // 환자 서비스 일괄 조회에 실패했습니다.
+            throw new BusinessException(ErrorCode.EXTERNAL_API_ERROR, "Failed to batch-fetch patient information.");
         }
     }
 

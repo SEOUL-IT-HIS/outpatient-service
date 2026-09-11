@@ -20,7 +20,6 @@ public class MedicalRecordController {
     @GetMapping
     public ApiResponse<List<MedicalRecordDto>> getRecords(
             @RequestParam(name = "keyword", required = false) String keyword) { // name="keyword" 명시!
-
         List<MedicalRecordDto> response = outpatientCareService.getRecords(keyword);
         return ApiResponse.success(response);
     }
@@ -29,13 +28,6 @@ public class MedicalRecordController {
     @GetMapping("/{recordId}")
     public ApiResponse<MedicalRecordDto> getRecord(@PathVariable String recordId) {
         MedicalRecordDto response = outpatientCareService.getRecord(recordId);
-        return ApiResponse.success(response);
-    }
-
-    // 진료기록 등록 POST /api/outpatient/records
-    @PostMapping
-    public ApiResponse<MedicalRecordDto> postRecord(@RequestBody MedicalRecordCreateDto request) {
-        MedicalRecordDto response = outpatientCareService.createRecord(request);
         return ApiResponse.success(response);
     }
 
@@ -58,6 +50,7 @@ public class MedicalRecordController {
         // 주입받은 서비스 변수명(outpatientCareService)과 인터페이스 메서드명(deactivateRecord)에 맞춤
         outpatientCareService.deactivateRecord(recordId, userId);
 
-        return ApiResponse.success("진료기록이 성공적으로 비활성화되었습니다.");
+        // 진료기록이 성공적으로 비활성화되었습니다.
+        return ApiResponse.success("The medical record has been deactivated successfully.");
     }
 }
