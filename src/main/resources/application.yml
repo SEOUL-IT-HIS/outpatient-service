@@ -27,6 +27,27 @@ app:
     admin:
       base-url: ${ADMIN_BASE_URL:http://localhost:8083}
       stub-enabled: ${ADMIN_STUB_ENABLED:true}
+    lab:
+      base-url: ${LAB_BASE_URL:http://localhost:8084}
+      stub-enabled: ${LAB_STUB_ENABLED:true}
+      # true면 검사오더 발송을 REST 대신 Kafka 이벤트 발행으로 전환 (검사서비스와 합의된 토픽 계약 사용)
+      messaging-enabled: ${LAB_MESSAGING_ENABLED:false}
+    pharmacy:
+      base-url: ${PHARMACY_BASE_URL:http://localhost:8088}
+      stub-enabled: ${PHARMACY_STUB_ENABLED:false}
+      # true면 약제 토픽 자동생성(PharmacyKafkaConfig) 활성화. REST 대안이 없어서 stub-enabled는 없음
+      messaging-enabled: ${PHARMACY_MESSAGING_ENABLED:false}
+    reception:
+      # true면 접수 토픽 자동생성(ReceptionKafkaConfig) 활성화. RCP는 Kafka로만 통보하므로 REST 대안 없음
+      messaging-enabled: ${RECEPTION_MESSAGING_ENABLED:false}
+  kafka:
+    topics:
+      lab-order-requested: opd.lab-order.requested.v1
+      lab-order-resulted: lab.lab-order.resulted.v1
+      pharmacy-order-requested: opd.pharmacy-order.requested.v1
+      reception-registered: outpatient-patient-daily-list
+    consumer-group: outpatient-service.lab-order-resulted-consumer
+    reception-consumer-group: outpatient-service.reception-registered-consumer
 
 spring:
   application:
@@ -56,11 +77,19 @@ spring:
           time_zone: Asia/Seoul
   jackson:
     time-zone: Asia/Seoul
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    consumer:
+      group-id: ${app.kafka.consumer-group}
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 mybatis:
   mapper-locations: classpath:mapper/*.xml
-  configuration:
-    map-underscore-to-camel-case: true
 
 management:
   endpoints:
@@ -84,4 +113,3 @@ logging:
     root: INFO
     kr.co.seoulit.his: DEBUG
     org.hibernate.SQL: DEBUG
-    org.hibernate.orm.jdbc.bind: TRACE

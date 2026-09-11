@@ -12,13 +12,14 @@ import java.time.LocalDateTime;
 public class EncounterDto {
 
         private String encounterId;      // 외래진료 ID
-        private String patientId;        // 환자 ID (PAT 참조)
-        private String patientNo;        // 환자 번호 (PAT)
-        private String patientName;      // 환자명 (PAT)
-        private String receptionId;      // 접수 ID (RCP 연계)
+        private String patientId;        // 환자 ID
+        private String patientName;      // 환자명
+        private String receptionId;      // 접수 ID
         private String departmentCode;   // 진료과 코드
+        private String departmentName;   // 진료과명 (ADM 공통코드 DEPT_CD 연동)
         private String doctorId;         // 담당의 ID
         private String status;           // 진료 상태 (WAITING, IN_PROGRESS, COMPLETED, CANCELLED)
         private LocalDate visitDate;     // 내원일
+        private String visitReason;      // 방문 사유
         private LocalDateTime createdAt; // 등록 일시
 }

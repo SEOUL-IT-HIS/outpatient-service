@@ -16,7 +16,7 @@ public class Encounter {
 
     @Id
     @Column(name = "ENCOUNTER_ID", length = 36)
-    private String id; // 외래진료 ID (UUID, DB에서 채번)
+    private String encounterId; // 외래진료 ID (UUID, DB에서 채번)
 
     @Column(name = "PATIENT_ID", nullable = false, length = 36)
     private String patientId; // 환자 ID (PAT 참조)
@@ -25,7 +25,7 @@ public class Encounter {
     private String receptionId; // 접수 ID (RCP 참조)
 
     @Column(name = "DEPARTMENT_ID", nullable = false, length = 20)
-    private String departmentId; // 진료과 코드
+    private String departmentCode; // 진료과 코드
 
     @Column(name = "DOCTOR_ID", nullable = false, length = 36)
     private String doctorId; // 담당의 ID
@@ -35,6 +35,9 @@ public class Encounter {
 
     @Column(name = "VISIT_DATE", nullable = false)
     private LocalDate visitDate; // 내원일
+
+    @Column(name = "VISIT_REASON", length = 500)
+    private String visitReason; // 방문 사유 (RCP 접수 시 입력)
 
     @Column(name = "STARTED_AT")
     private LocalDateTime startedAt; // 진료 시작 일시
