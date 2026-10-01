@@ -46,8 +46,10 @@ app:
       lab-order-resulted: lab.lab-order.resulted.v1
       pharmacy-order-requested: opd.pharmacy-order.requested.v1
       reception-registered: outpatient-patient-daily-list
+      lab-result-reported: lab.lab-result.reported.v1
     consumer-group: outpatient-service.lab-order-resulted-consumer
     reception-consumer-group: outpatient-service.reception-registered-consumer
+    lab-result-consumer-group: outpatient-service.lab-result-reported-consumer
 
 spring:
   application:

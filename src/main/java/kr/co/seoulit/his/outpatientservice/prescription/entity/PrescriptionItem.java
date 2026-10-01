@@ -53,4 +53,22 @@ public class PrescriptionItem {
     private String rejectReason; // 검사오더 거절/실패 사유 (FAILED일 때만 값 존재)
 
     private String dosageFormCd;
+
+    @Column(name = "RESULT_VALUE", length = 200)
+    private String resultValue;
+
+    @Column(name = "RESULT_UNIT", length = 50)
+    private String resultUnit;
+
+    @Column(name = "REFERENCE_RANGE", length = 100)
+    private String referenceRange;
+
+    @Column(name = "ABNORMAL_FLAG", length = 10)
+    private String abnormalFlag;
+
+    @Column(name = "RESULT_REPORTED_AT")
+    private LocalDateTime resultReportedAt;
+
+    @Column(name = "RESULT_EVENT_ID", length = 36)
+    private String resultEventId; // 같은 eventId 재수신이면 중복으로 보고 스킵
 }

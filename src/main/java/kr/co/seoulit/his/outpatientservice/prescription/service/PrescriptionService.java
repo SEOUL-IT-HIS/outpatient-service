@@ -1,5 +1,6 @@
 package kr.co.seoulit.his.outpatientservice.prescription.service;
 
+import kr.co.seoulit.his.outpatientservice.common.client.lab.LabResultEventDto;
 import kr.co.seoulit.his.outpatientservice.common.client.pharmacy.PharmacyApiDto;
 import kr.co.seoulit.his.outpatientservice.prescription.dto.PrescriptionCreateDto;
 import kr.co.seoulit.his.outpatientservice.prescription.dto.PrescriptionDto;
@@ -28,4 +29,10 @@ public interface PrescriptionService {
 
         // 약품 검색 (약제서비스 검색 조회)
         List<PharmacyApiDto.Medication> searchMedication(String name);
+
+        //처방 비활성화
+        void deactivatePrescription(String prescriptionId, String cancelReason, String userId);
+
+        //검사결과조회
+        void applyLabResult(String eventId, LabResultEventDto.ResultData data, LabResultEventDto.ResultItem item);
 }

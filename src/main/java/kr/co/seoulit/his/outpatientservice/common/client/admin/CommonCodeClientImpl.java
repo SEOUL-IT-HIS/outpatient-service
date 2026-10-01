@@ -38,7 +38,7 @@ public class CommonCodeClientImpl implements CommonCodeClient {
     public List<CommonCodeApiDto.CommonCodeGroup> getGroups() {
         try {
             JsonNode body = adminRestClient.get()
-                    .uri("/api/commonCodeGroup/list")
+                    .uri("/api/admin/commonCodeGroup/list")
                     .retrieve()
                     .body(JsonNode.class);
             return extractList(body, new TypeReference<>() {
@@ -54,7 +54,7 @@ public class CommonCodeClientImpl implements CommonCodeClient {
     public List<CommonCodeApiDto.CommonCodeItem> getItems(String groupId) {
         try {
             JsonNode body = adminRestClient.get()
-                    .uri(uriBuilder -> uriBuilder.path("/api/commonCodeItem/list")
+                    .uri(uriBuilder -> uriBuilder.path("/api/admin/commonCodeItem/list")
                             .queryParam("groupId", groupId)
                             .build())
                     .retrieve()

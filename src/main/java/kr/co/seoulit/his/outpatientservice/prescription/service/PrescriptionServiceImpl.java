@@ -1,5 +1,7 @@
 package kr.co.seoulit.his.outpatientservice.prescription.service;
 
+import kr.co.seoulit.his.outpatientservice.common.cache.CommonCodeCache;
+import kr.co.seoulit.his.outpatientservice.common.client.lab.LabResultEventDto;
 import kr.co.seoulit.his.outpatientservice.common.client.patient.PatientApiDto;
 import kr.co.seoulit.his.outpatientservice.common.client.patient.PatientClient;
 import kr.co.seoulit.his.outpatientservice.common.client.pharmacy.PharmacyApiDto;
@@ -9,9 +11,11 @@ import kr.co.seoulit.his.outpatientservice.common.client.pharmacy.PharmacyPublis
 import kr.co.seoulit.his.outpatientservice.common.exception.BusinessException;
 import kr.co.seoulit.his.outpatientservice.common.exception.ErrorCode;
 import kr.co.seoulit.his.outpatientservice.prescription.dto.PrescriptionDto;
+import kr.co.seoulit.his.outpatientservice.prescription.entity.ExamResultRef;
 import kr.co.seoulit.his.outpatientservice.prescription.entity.Prescription;
 import kr.co.seoulit.his.outpatientservice.prescription.entity.PrescriptionItem;
 import kr.co.seoulit.his.outpatientservice.prescription.mapper.PrescriptionMapper;
+import kr.co.seoulit.his.outpatientservice.prescription.repository.ExamResultRefRepository;
 import kr.co.seoulit.his.outpatientservice.prescription.repository.PrescriptionItemRepository;
 import kr.co.seoulit.his.outpatientservice.prescription.repository.PrescriptionRepository;
 import lombok.RequiredArgsConstructor;
@@ -49,6 +53,11 @@ public class PrescriptionServiceImpl implements PrescriptionService {
     private final LabOrderDispatcher labOrderDispatcher;
     private final PharmacyPublisher pharmacyPublisher;
     private final PharmacyClient pharmacyClient;
+    private final CommonCodeCache commonCodeCache;
+    private final ExamResultRefRepository examResultRefRepository;
+
+    private static final String PRIORITY_CODE_GROUP = "ORDER_PRIORITY_CD";
+    private static final String RESULT_ITEM_CODE_GROUP = "RESULT_ITEM_CD";
 
     // 처방 목록 조회
     @Override
@@ -58,6 +67,7 @@ public class PrescriptionServiceImpl implements PrescriptionService {
 
         List<PrescriptionDto> result = prescriptionMapper.toPrescriptionDtoList(prescriptions);
         fillPatientInfo(result);
+        fillPriorityName(result);
 
         // 환자명/환자번호/환자ID 세팅이 끝난 후에 키워드로 필터링
         if (keyword != null && !keyword.isBlank()) {
@@ -84,10 +94,58 @@ public class PrescriptionServiceImpl implements PrescriptionService {
         // 처방 상세 아이템 목록 조회 (목록 조회 API에는 N+1 방지를 위해 포함하지 않음)
         List<PrescriptionItem> items = prescriptionItemRepository.findByPrescriptionId(prescriptionId);
         dto.setItems(prescriptionMapper.toItemDtoList(items));
+        fillResultDetails(dto.getItems());
 
         fillPatientInfo(List.of(dto));
+        fillPriorityName(List.of(dto));
 
         return dto;
+    }
+
+    // 검사 항목별 결과 상세(EXAM_RESULT_REF)를 한 번에 조회해서 채운다 (N+1 방지).
+    // 구형식으로 저장된 결과(PRESCRIPTION_ITEM.RESULT_VALUE)는 seq=1 한 건으로 합쳐서 내려준다.
+    private void fillResultDetails(List<PrescriptionItemDto> items) {
+        List<String> labItemIds = items.stream()
+                .filter(i -> "검사".equals(i.getPrescriptionType()))
+                .map(PrescriptionItemDto::getItemId)
+                .collect(Collectors.toList());
+        if (labItemIds.isEmpty()) {
+            return;
+        }
+
+        Map<String, List<ExamResultRef>> refsByItemId =
+                examResultRefRepository.findByItemIdInOrderBySeqAsc(labItemIds).stream()
+                        .collect(Collectors.groupingBy(ExamResultRef::getItemId));
+
+        for (PrescriptionItemDto item : items) {
+            if (!"검사".equals(item.getPrescriptionType())) {
+                continue;
+            }
+            List<ExamResultRef> refs = refsByItemId.get(item.getItemId());
+            if (refs != null) {
+                List<PrescriptionItemDto.ResultDetail> details = prescriptionMapper.toResultDetailList(refs);
+                // 결과항목명은 ADM 공통코드(RESULT_ITEM_CD). 미등록이거나 캐시 적재 전이면 null로 둔다
+                details.forEach(d -> commonCodeCache.findCodeName(RESULT_ITEM_CODE_GROUP, d.getDetailCode())
+                        .ifPresent(d::setDetailName));
+                item.setResultDetails(details);
+            } else if (item.getResultValue() != null) {
+                PrescriptionItemDto.ResultDetail legacy = new PrescriptionItemDto.ResultDetail();
+                legacy.setSeq(1);
+                legacy.setResultValue(item.getResultValue());
+                legacy.setResultUnit(item.getResultUnit());
+                legacy.setReferenceRange(item.getReferenceRange());
+                legacy.setAbnormalFlag(item.getAbnormalFlag());
+                item.setResultDetails(List.of(legacy));
+            }
+        }
+    }
+
+    // 우선순위코드(ADM 공통코드 ORDER_PRIORITY_CD) -> 우선순위명 채우기
+    private void fillPriorityName(List<PrescriptionDto> dtos) {
+        for (PrescriptionDto dto : dtos) {
+            commonCodeCache.findCodeName(PRIORITY_CODE_GROUP, dto.getPriorityCode())
+                    .ifPresent(dto::setPriorityName);
+        }
     }
 
     // 환자 정보(PAT API) 일괄 연동하여 환자명/환자번호 채우기
@@ -161,6 +219,7 @@ public class PrescriptionServiceImpl implements PrescriptionService {
         PrescriptionDto dto = prescriptionMapper.toPrescriptionDto(saved);
         dto.setItems(prescriptionMapper.toItemDtoList(items));
         fillPatientInfo(List.of(dto));
+        fillPriorityName(List.of(dto));
         return dto;
     }
 
@@ -234,6 +293,97 @@ public class PrescriptionServiceImpl implements PrescriptionService {
         prescriptionItemRepository.saveAll(pendingLabItems);
     }
 
+    //검사결과조회
+    @Override
+    @Transactional
+    public void applyLabResult(String eventId, LabResultEventDto.ResultData data, LabResultEventDto.ResultItem item) {
+        String prescriptionId = data.prescriptionId();
+
+        if (eventId == null || item.itemCode() == null) {
+            log.warn("[LAB 결과 수신] eventId/itemCode 누락으로 스킵 prescriptionId={}", prescriptionId);
+            return;
+        }
+
+        if (!LabResultEventDto.RESULT_TYPE_GENERAL.equals(item.resultType())) {
+            log.info("[LAB 결과 수신] 미지원 resultType={} 스킵 prescriptionId={}, itemCode={}",
+                    item.resultType(), prescriptionId, item.itemCode());
+            return;
+        }
+
+        // 신형식은 details, 구형식은 최상위 resultValue가 채워진다. 둘 다 비면 빈 결과가 저장되므로 스킵
+        boolean hasDetails = item.details() != null && !item.details().isEmpty();
+        if (!hasDetails && item.resultValue() == null) {
+            log.warn("[LAB 결과 수신] details/resultValue 모두 없음 스킵 prescriptionId={}, itemCode={}",
+                    prescriptionId, item.itemCode());
+            return;
+        }
+
+        List<PrescriptionItem> items = prescriptionItemRepository.findByPrescriptionId(prescriptionId);
+        PrescriptionItem target = items.stream()
+                .filter(i -> "검사".equals(i.getPrescriptionType()))
+                .filter(i -> item.itemCode().equals(i.getItemCode()))
+                .filter(i -> "SENT".equals(i.getSendStatus()))
+                .findFirst()
+                .orElse(null);
+
+        if (target == null) {
+            log.info("[LAB 결과 수신] 대상 검사항목 없음(중복/오류로 추정) prescriptionId={}, itemCode={}", prescriptionId, item.itemCode());
+            return;
+        }
+
+        if (eventId.equals(target.getResultEventId())) {
+            log.info("[LAB 결과 수신] 중복 eventId={} 스킵 prescriptionId={}, itemCode={}", eventId, prescriptionId, item.itemCode());
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        // 검사서비스가 보내는 결과 확정 시각(+09:00)을 KST로 맞춘다. 없으면 수신 시각으로 대체
+        LocalDateTime resultedAt = data.reportedAt() != null
+                ? data.reportedAt().atZoneSameInstant(java.time.ZoneId.of("Asia/Seoul")).toLocalDateTime()
+                : now;
+
+        if (hasDetails) {
+            // 검사서비스에 정정 기능이 없어, 이미 결과가 있는 항목에 다른 eventId가 오면 비정상이다 → 덮어쓰지 않고 스킵
+            if (examResultRefRepository.existsByItemId(target.getItemId())) {
+                log.warn("[LAB 결과 수신] 이미 결과가 있는 항목에 다른 eventId={} 수신, 스킵 itemId={}", eventId, target.getItemId());
+                return;
+            }
+
+            String patientId = prescriptionRepository.findById(prescriptionId)
+                    .map(Prescription::getPatientId)
+                    .orElse(null);
+
+            List<ExamResultRef> refs = item.details().stream().map(d -> {
+                ExamResultRef ref = new ExamResultRef();
+                ref.setResultRefId(UUID.randomUUID().toString());
+                ref.setItemId(target.getItemId());
+                ref.setPatientId(patientId);
+                ref.setLabResultId(item.resultId());
+                ref.setResultStatus(data.resultStatus());
+                ref.setResultedAt(resultedAt);
+                ref.setCachedAt(now);
+                ref.setSeq(d.seq());
+                ref.setDetailCode(d.detailCode());
+                ref.setResultValue(d.resultValue());
+                ref.setResultUnit(d.unit());
+                ref.setReferenceRange(d.referenceRange());
+                ref.setAbnormalFlag(d.abnormalFlag());
+                return ref;
+            }).collect(Collectors.toList());
+            examResultRefRepository.saveAll(refs);
+        } else {
+            // 구형식(최상위 값) 호환 — 검사서비스가 신형식으로 전환하기 전까지 유지
+            target.setResultValue(item.resultValue());
+            target.setResultUnit(item.unit());
+            target.setReferenceRange(item.referenceRange());
+            target.setAbnormalFlag(item.abnormalFlag());
+        }
+
+        target.setResultReportedAt(resultedAt);
+        target.setResultEventId(eventId);
+        prescriptionItemRepository.save(target);
+    }
+
     // 처방 아이템 중 약품 항목만 모아서 약제실로 전송
     @Override
     @Transactional
@@ -290,4 +440,17 @@ public class PrescriptionServiceImpl implements PrescriptionService {
         return pharmacyClient.searchMedication(name);
     }
 
+    //처방 비활성화
+    @Override
+    public void deactivatePrescription(String prescriptionId, String cancelReason, String userId) {
+        Prescription prescription = prescriptionRepository.findById(prescriptionId)
+                //비활성화 처방을 찾을 수 없음
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
+                        "Prescription to deactivate not found. prescriptionId=" + prescriptionId));
+
+        prescription.setStatus("CANCELLED");
+        prescription.setCancelledAt(LocalDateTime.now());
+        prescription.setCancelReason(cancelReason);
+        prescriptionRepository.save(prescription);
+    }
 }

@@ -22,7 +22,8 @@ public class PrescriptionDto {
     private String orderMethod;         // 처방유형
     private String admissionId;         // 입원 ID
 
-    private String priorityCode;        // 우선순위코드 (ROUTINE/URGENT/STAT)
+    private String priorityCode;        // 우선순위코드 (ADM 공통코드 ORDER_PRIORITY_CD 의 codeValue)
+    private String priorityName;        // 우선순위명 (ADM 공통코드 ORDER_PRIORITY_CD 연동)
     private String timingCode;          // 처방패턴코드 (SCHEDULED/PRN/ONCE)
     private String verbalYn;            // 구두처방여부 (Y/N)
     private LocalDateTime verbalConfirmedAt; // 구두처방확정일시

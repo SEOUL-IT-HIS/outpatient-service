@@ -63,4 +63,16 @@ public class PrescriptionController {
         List<PharmacyApiDto.Medication> response = prescriptionService.searchMedication(name);
         return ApiResponse.success(response);
     }
+
+    //처방 비활성화 PATCH /api/outpatient/prescriptions/{prescriptionId}/deactivate
+    @PatchMapping("/{prescriptionId}/deactivate")
+    public ApiResponse<String> deactivatePrescription(
+            @PathVariable("prescriptionId") String prescriptionId,
+            @RequestParam("cancelReason") String cancelReason,
+            @RequestParam("userId") String userId) {
+
+        prescriptionService.deactivatePrescription(prescriptionId, cancelReason, userId) ;
+
+        return ApiResponse.success("The prescription has been deactivated successfully.");
+    }
 }
