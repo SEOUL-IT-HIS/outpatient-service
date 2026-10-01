@@ -1,8 +1,9 @@
-FROM eclipse-temurin:17-jre-alpine
-WORKDIR /app
+FROM eclipse-temurin:17-jdk
 
-ARG JAR_FILE=build/libs/*.jar
-COPY ${JAR_FILE} app.jar
+run mkdir /app
+workdir /app
 
-EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
+add ./build/libs/*.jar /app/app.jar
+
+EXPOSE 8088
+entrypoint ["java", "-jar", "app.jar"]

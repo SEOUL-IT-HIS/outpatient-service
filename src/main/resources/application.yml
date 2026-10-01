@@ -1,7 +1,13 @@
 server:
-  port: ${SERVER_PORT:8080}
+  port: ${SERVER_PORT:8088}
   servlet:
     context-path: /
+    session:
+      timeout: 10h
+      cookie:
+        http-only: true
+        path: /
+        same-site: lax
 
 app:
   api:
@@ -16,24 +22,26 @@ app:
       - http://localhost:3000
       - http://127.0.0.1:3000
       - http://192.168.*:*
+      - http://117.16.154.233:18080
+      - http://seoulit.pe.kr:18080
   service:
     code: OPD
     name: outpatient-service
   services:
     patient:
-      base-url: ${PATIENT_BASE_URL:http://localhost:8082}
+      base-url: ${PATIENT_BASE_URL:http://localhost:8087}
       # true면 PAT 미기동 로컬 stub. 실제 연동 시 false
       stub-enabled: ${PATIENT_STUB_ENABLED:true}
     admin:
-      base-url: ${ADMIN_BASE_URL:http://localhost:8083}
+      base-url: ${ADMIN_BASE_URL:http://localhost:9191}
       stub-enabled: ${ADMIN_STUB_ENABLED:true}
     lab:
-      base-url: ${LAB_BASE_URL:http://localhost:8084}
+      base-url: ${LAB_BASE_URL:http://localhost:8085}
       stub-enabled: ${LAB_STUB_ENABLED:true}
       # true면 검사오더 발송을 REST 대신 Kafka 이벤트 발행으로 전환 (검사서비스와 합의된 토픽 계약 사용)
       messaging-enabled: ${LAB_MESSAGING_ENABLED:false}
     pharmacy:
-      base-url: ${PHARMACY_BASE_URL:http://localhost:8088}
+      base-url: ${PHARMACY_BASE_URL:http://localhost:8082}
       stub-enabled: ${PHARMACY_STUB_ENABLED:false}
       # true면 약제 토픽 자동생성(PharmacyKafkaConfig) 활성화. REST 대안이 없어서 stub-enabled는 없음
       messaging-enabled: ${PHARMACY_MESSAGING_ENABLED:false}
@@ -56,6 +64,12 @@ spring:
     name: outpatient-service
   config:
     import: optional:classpath:application-local.yml
+  data:
+    redis:
+      #host: 192.168.1.128
+      host: localhost
+      port: 6379
+      password: ${REDIS_PASSWORD:}
   datasource:
     url: ${DB_URL:jdbc:oracle:thin:@seoulit.pe.kr:1521/FREEPDB1}
     username: ${DB_USERNAME:outpatient}

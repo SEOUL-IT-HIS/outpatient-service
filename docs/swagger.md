@@ -8,8 +8,8 @@
 
 | 대상 | URL |
 | --- | --- |
-| Swagger UI | `http://localhost:8080/swagger-ui.html` |
-| OpenAPI JSON | `http://localhost:8080/api-docs` |
+| Swagger UI | `http://localhost:8088/swagger-ui.html` |
+| OpenAPI JSON | `http://localhost:8088/api-docs` |
 
 ## 설정 위치
 
