@@ -14,7 +14,8 @@ public final class LabOrderEventDto {
     //지금 주고받는 카프카메시지가 검사오더요청인지, 검사결과회신인지 구분
     public static final String EVENT_TYPE_REQUESTED = "LabOrderRequested";
     public static final String SCHEMA_VERSION = "1.0";
-    public static final String SOURCE_OPD = "OPD";
+    // SYSTEM_SOURCE_CD 공통코드(ADM DB 등록값) 기준 "Outpatient System" 코드값. 개발표준가이드의 "OPD" 문자열과 다르니 주의
+    public static final String SOURCE_OPD = "01";
 
     public static final String STATUS_ACCEPTED = "ACCEPTED";
 
