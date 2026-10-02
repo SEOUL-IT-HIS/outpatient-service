@@ -1,6 +1,7 @@
 package kr.co.seoulit.his.outpatientservice.prescription.service;
 
 import kr.co.seoulit.his.outpatientservice.common.cache.CommonCodeCache;
+import kr.co.seoulit.his.outpatientservice.common.client.lab.LabClient;
 import kr.co.seoulit.his.outpatientservice.common.client.lab.LabResultEventDto;
 import kr.co.seoulit.his.outpatientservice.common.client.patient.PatientApiDto;
 import kr.co.seoulit.his.outpatientservice.common.client.patient.PatientClient;
@@ -55,19 +56,34 @@ public class PrescriptionServiceImpl implements PrescriptionService {
     private final PharmacyClient pharmacyClient;
     private final CommonCodeCache commonCodeCache;
     private final ExamResultRefRepository examResultRefRepository;
+    private final LabClient labClient;
 
     private static final String PRIORITY_CODE_GROUP = "ORDER_PRIORITY_CD";
+    private static final String TIMING_CODE_GROUP = "ORDER_TIMING_CD";
+    private static final String ORDER_METHOD_CODE_GROUP = "ORDER_METHOD_CD";
     private static final String RESULT_ITEM_CODE_GROUP = "RESULT_ITEM_CD";
 
     // 처방 목록 조회
+    // 목록은 N+1 방지를 위해 items[](검사결과 등)를 포함하지 않는다 — 응급은 orderId 선택용으로만 쓰고,
+    // 검사결과/조제상태는 원래 정한 대로 Kafka 구독으로 받는다(처방코어를 다시 거치지 않기 위함).
     @Override
     @Transactional(readOnly = true)
-    public List<PrescriptionDto> getPrescriptions(String keyword) {
+    public List<PrescriptionDto> getPrescriptions(String keyword, String receptionId) {
         List<Prescription> prescriptions = prescriptionRepository.findAll(Sort.by(Sort.Direction.DESC, "prescribedAt"));
 
         List<PrescriptionDto> result = prescriptionMapper.toPrescriptionDtoList(prescriptions);
         fillPatientInfo(result);
         fillPriorityName(result);
+        fillTimingName(result);
+        fillOrderMethodName(result);
+
+        // 응급이 자기 접수건(receptionId)의 처방만 찾을 때 사용 — 다른 사람이 만든 처방도 ID 없이 찾아야 해서 필요
+        if (receptionId != null && !receptionId.isBlank()) {
+            String trimmedReceptionId = receptionId.trim();
+            result = result.stream()
+                    .filter(dto -> trimmedReceptionId.equals(dto.getReceptionId()))
+                    .collect(Collectors.toList());
+        }
 
         // 환자명/환자번호/환자ID 세팅이 끝난 후에 키워드로 필터링
         if (keyword != null && !keyword.isBlank()) {
@@ -98,6 +114,8 @@ public class PrescriptionServiceImpl implements PrescriptionService {
 
         fillPatientInfo(List.of(dto));
         fillPriorityName(List.of(dto));
+        fillTimingName(List.of(dto));
+        fillOrderMethodName(List.of(dto));
 
         return dto;
     }
@@ -145,6 +163,22 @@ public class PrescriptionServiceImpl implements PrescriptionService {
         for (PrescriptionDto dto : dtos) {
             commonCodeCache.findCodeName(PRIORITY_CODE_GROUP, dto.getPriorityCode())
                     .ifPresent(dto::setPriorityName);
+        }
+    }
+
+    // 처방패턴코드(ADM 공통코드 ORDER_TIMING_CD) -> 처방패턴명 채우기
+    private void fillTimingName(List<PrescriptionDto> dtos) {
+        for (PrescriptionDto dto : dtos) {
+            commonCodeCache.findCodeName(TIMING_CODE_GROUP, dto.getTimingCode())
+                    .ifPresent(dto::setTimingName);
+        }
+    }
+
+    // 처방유형코드(ADM 공통코드 ORDER_METHOD_CD) -> 처방유형명 채우기
+    private void fillOrderMethodName(List<PrescriptionDto> dtos) {
+        for (PrescriptionDto dto : dtos) {
+            commonCodeCache.findCodeName(ORDER_METHOD_CODE_GROUP, dto.getOrderMethod())
+                    .ifPresent(dto::setOrderMethodName);
         }
     }
 
@@ -198,12 +232,132 @@ public class PrescriptionServiceImpl implements PrescriptionService {
         prescription.setPharmacySendStatus("PENDING");
         Prescription saved = prescriptionRepository.save(prescription);
 
-        List<PrescriptionItem> items = request.getItems() == null
-                ? List.of()
-                : request.getItems().stream().map(req -> {
+        List<PrescriptionItem> items = buildItems(saved.getPrescriptionId(), request.getItems());
+        prescriptionItemRepository.saveAll(items);
+
+        PrescriptionDto dto = prescriptionMapper.toPrescriptionDto(saved);
+        dto.setItems(prescriptionMapper.toItemDtoList(items));
+        fillPatientInfo(List.of(dto));
+        fillPriorityName(List.of(dto));
+        fillTimingName(List.of(dto));
+        fillOrderMethodName(List.of(dto));
+        return dto;
+    }
+
+    // 입원(admission) 처방 등록 — 병동은 서버 간 호출(로그인 세션 없음)이라 patientId/prescribedBy를 요청 바디로 직접 받는다
+    @Override
+    public PrescriptionDto createPrescriptionForAdmission(String admissionId, PrescriptionCreateDto request) {
+        if (request.getPatientId() == null || request.getPrescribedBy() == null) {
+            // 입원 경로는 Encounter가 없어 patientId/prescribedBy를 세션/encounter로 채울 수 없습니다.
+            throw new BusinessException(ErrorCode.INVALID_INPUT, "patientId and prescribedBy are required for admission prescriptions.");
+        }
+
+        Prescription prescription = new Prescription();
+        prescription.setPrescriptionId(UUID.randomUUID().toString());
+        prescription.setAdmissionId(admissionId);
+        prescription.setPatientId(request.getPatientId());
+        prescription.setPrescribedBy(request.getPrescribedBy());
+        prescription.setDepartmentCode(request.getDepartmentCode());
+        prescription.setServiceType(request.getServiceType());
+        prescription.setStatus("ORDERED");
+        prescription.setPrescribedAt(LocalDateTime.now());
+        prescription.setOrderMethod(request.getOrderMethod());
+        prescription.setPriorityCode(request.getPriorityCode());
+        prescription.setTimingCode(request.getTimingCode());
+        prescription.setPharmacySendStatus("PENDING");
+        Prescription saved = prescriptionRepository.save(prescription);
+
+        List<PrescriptionItem> items = buildItems(saved.getPrescriptionId(), request.getItems());
+        prescriptionItemRepository.saveAll(items);
+
+        PrescriptionDto dto = prescriptionMapper.toPrescriptionDto(saved);
+        dto.setItems(prescriptionMapper.toItemDtoList(items));
+        fillPatientInfo(List.of(dto));
+        fillPriorityName(List.of(dto));
+        fillTimingName(List.of(dto));
+        fillOrderMethodName(List.of(dto));
+        return dto;
+    }
+
+    // 응급(emergency) 처방 등록 — 병동과 동일하게 서버 간 호출(로그인 세션 없음)이라 patientId/prescribedBy를 요청 바디로 직접 받는다
+    @Override
+    public PrescriptionDto createPrescriptionForEmergency(String receptionId, PrescriptionCreateDto request) {
+        if (request.getPatientId() == null || request.getPrescribedBy() == null) {
+            // 응급 경로는 Encounter가 없어 patientId/prescribedBy를 세션/encounter로 채울 수 없습니다.
+            throw new BusinessException(ErrorCode.INVALID_INPUT, "patientId and prescribedBy are required for emergency prescriptions.");
+        }
+
+        Prescription prescription = new Prescription();
+        prescription.setPrescriptionId(UUID.randomUUID().toString());
+        prescription.setReceptionId(receptionId);
+        prescription.setPatientId(request.getPatientId());
+        prescription.setPrescribedBy(request.getPrescribedBy());
+        prescription.setDepartmentCode(request.getDepartmentCode());
+        prescription.setServiceType(request.getServiceType());
+        prescription.setStatus("ORDERED");
+        prescription.setPrescribedAt(LocalDateTime.now());
+        prescription.setOrderMethod(request.getOrderMethod());
+        prescription.setPriorityCode(request.getPriorityCode());
+        prescription.setTimingCode(request.getTimingCode());
+        prescription.setVerbalYn(request.getVerbalYn());
+        prescription.setPharmacySendStatus("PENDING");
+        Prescription saved = prescriptionRepository.save(prescription);
+
+        List<PrescriptionItem> items = buildItems(saved.getPrescriptionId(), request.getItems());
+        prescriptionItemRepository.saveAll(items);
+
+        PrescriptionDto dto = prescriptionMapper.toPrescriptionDto(saved);
+        dto.setItems(prescriptionMapper.toItemDtoList(items));
+        fillPatientInfo(List.of(dto));
+        fillPriorityName(List.of(dto));
+        fillTimingName(List.of(dto));
+        fillOrderMethodName(List.of(dto));
+        return dto;
+    }
+
+    // 구두처방 확정 — verbalYn=Y인 처방에만 허용, 이미 확정된 처방은 CONFLICT
+    @Override
+    @Transactional
+    public PrescriptionDto confirmVerbalOrder(String prescriptionId, String confirmedBy) {
+        if (confirmedBy == null || confirmedBy.isBlank()) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT, "confirmedBy is required.");
+        }
+
+        Prescription prescription = prescriptionRepository.findById(prescriptionId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
+                        "Prescription not found. prescriptionId=" + prescriptionId));
+
+        if (!"Y".equals(prescription.getVerbalYn())) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT,
+                    "This prescription is not a verbal order. prescriptionId=" + prescriptionId);
+        }
+        if (prescription.getVerbalConfirmedAt() != null) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "This verbal order has already been confirmed. prescriptionId=" + prescriptionId);
+        }
+
+        prescription.setVerbalConfirmedAt(LocalDateTime.now());
+        prescription.setVerbalConfirmedBy(confirmedBy);
+        Prescription saved = prescriptionRepository.save(prescription);
+
+        PrescriptionDto dto = prescriptionMapper.toPrescriptionDto(saved);
+        List<PrescriptionItem> items = prescriptionItemRepository.findByPrescriptionId(prescriptionId);
+        dto.setItems(prescriptionMapper.toItemDtoList(items));
+        fillPatientInfo(List.of(dto));
+        fillPriorityName(List.of(dto));
+        fillTimingName(List.of(dto));
+        fillOrderMethodName(List.of(dto));
+        return dto;
+    }
+
+    private List<PrescriptionItem> buildItems(String prescriptionId, List<PrescriptionItemDto> itemDtos) {
+        if (itemDtos == null) {
+            return List.of();
+        }
+        return itemDtos.stream().map(req -> {
             PrescriptionItem item = new PrescriptionItem();
             item.setItemId(UUID.randomUUID().toString());
-            item.setPrescriptionId(saved.getPrescriptionId());
+            item.setPrescriptionId(prescriptionId);
             item.setPrescriptionType(req.getPrescriptionType());
             item.setItemCode(req.getItemCode());
             item.setItemName(req.getItemName());
@@ -214,13 +368,29 @@ public class PrescriptionServiceImpl implements PrescriptionService {
             item.setDetailInfo(req.getDetailInfo());
             return item;
         }).collect(Collectors.toList());
-        prescriptionItemRepository.saveAll(items);
+    }
 
-        PrescriptionDto dto = prescriptionMapper.toPrescriptionDto(saved);
-        dto.setItems(prescriptionMapper.toItemDtoList(items));
-        fillPatientInfo(List.of(dto));
-        fillPriorityName(List.of(dto));
-        return dto;
+    // 처방의 진료구분(serviceType) -> 검사서비스 채널 구분(OPD/ER/IP).
+    // 데이터에 OP/외래/ADMISSION 등이 섞여 있어 알려진 값만 변환하고, 모르는 값은 null로 보낸다(검사서비스가 OPD로 처리).
+    static String toEncounterType(String serviceType) {
+        if (serviceType == null) {
+            return null;
+        }
+        return switch (serviceType.trim().toUpperCase()) {
+            case "OP", "OPD", "외래" -> LabOrderEventDto.ENCOUNTER_TYPE_OPD;
+            case "ER", "EMERGENCY", "응급" -> LabOrderEventDto.ENCOUNTER_TYPE_ER;
+            case "IP", "IPD", "ADMISSION", "입원" -> LabOrderEventDto.ENCOUNTER_TYPE_IP;
+            default -> null;
+        };
+    }
+
+    // 응급 여부: ER 채널이거나 우선순위가 STAT이면 Y (검사서비스와 합의).
+    // 우선순위는 ADM 공통코드 ORDER_PRIORITY_CD 기준 STAT="01"이고, 옛 데이터에는 문자열 "STAT"이 있을 수 있어 둘 다 인정한다.
+    static boolean isUrgent(String encounterType, String priorityCode) {
+        if (LabOrderEventDto.ENCOUNTER_TYPE_ER.equals(encounterType)) {
+            return true;
+        }
+        return priorityCode != null && ("01".equals(priorityCode.trim()) || "STAT".equalsIgnoreCase(priorityCode.trim()));
     }
 
     // 처방 아이템 중 검사(Lab) 항목만 모아서 검사실로 한 번에 전송
@@ -242,11 +412,16 @@ public class PrescriptionServiceImpl implements PrescriptionService {
                     .map(item -> new LabOrderApiDto.LabOrderItemRequestDto(item.getItemCode(), item.getItemName()))
                     .collect(Collectors.toList());
 
+            String encounterType = toEncounterType(prescription.getServiceType());
             LabOrderApiDto.LabOrderCreateRequestDto request = new LabOrderApiDto.LabOrderCreateRequestDto(
                     prescription.getPrescriptionId(),
                     prescription.getEncounterId(),
                     prescription.getPatientId(),
                     prescription.getPrescribedBy(),
+                    encounterType,
+                    isUrgent(encounterType, prescription.getPriorityCode()) ? "Y" : "N",
+                    prescription.getAdmissionId(),
+                    prescription.getReceptionId(),
                     orderItems
             );
 
@@ -392,9 +567,20 @@ public class PrescriptionServiceImpl implements PrescriptionService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
                         "Prescription not found. prescriptionId=" + prescriptionId));
 
-        Encounter encounter = encounterRepository.findById(prescription.getEncounterId())
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
-                        "Outpatient encounter not found. encounterId=" + prescription.getEncounterId()));
+        // 외래 경로는 Encounter에서 처방과 코드를 가져오고, 입원 경로는 Encounter가 없어 등록 시 받은 departmentCode를 그대로 쓴다.
+        String departmentCode;
+        if (prescription.getEncounterId() != null) {
+            Encounter encounter = encounterRepository.findById(prescription.getEncounterId())
+                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
+                            "Outpatient encounter not found. encounterId=" + prescription.getEncounterId()));
+            departmentCode = encounter.getDepartmentCode();
+        } else {
+            departmentCode = prescription.getDepartmentCode();
+            if (departmentCode == null) {
+                throw new BusinessException(ErrorCode.INVALID_INPUT,
+                        "Department code missing for admission prescription. prescriptionId=" + prescriptionId);
+            }
+        }
 
         List<PrescriptionItem> items = prescriptionItemRepository.findByPrescriptionId(prescriptionId);
         List<PrescriptionItem> pharmacyItems = items.stream()
@@ -421,7 +607,7 @@ public class PrescriptionServiceImpl implements PrescriptionService {
                 prescription.getPrescriptionId(),
                 prescription.getPatientId(),
                 prescription.getPrescribedBy(),
-                encounter.getDepartmentCode(),
+                departmentCode,
                 prescription.getPrescribedAt().atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime(),
                 orderItems
         );
@@ -438,6 +624,13 @@ public class PrescriptionServiceImpl implements PrescriptionService {
     @Transactional(readOnly = true)
     public List<PharmacyApiDto.Medication> searchMedication(String name) {
         return pharmacyClient.searchMedication(name);
+    }
+
+    // 검사 항목 검색 (검사서비스 카탈로그 조회)
+    @Override
+    @Transactional(readOnly = true)
+    public List<LabOrderApiDto.LabItem> searchLabItem(String name) {
+        return labClient.searchLabItem(name);
     }
 
     //처방 비활성화

@@ -11,6 +11,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.util.List;
+
 @Slf4j
 @Component
 @ConditionalOnProperty(name = "app.services.lab.stub-enabled", havingValue = "false", matchIfMissing = true)
@@ -42,5 +44,22 @@ public class LabClientImpl implements LabClient {
             // 검사실 전송에 실패했습니다.
             throw new BusinessException(ErrorCode.EXTERNAL_API_ERROR, "Failed to send the order to the lab.");
         }
+    }
+
+    // 경로(/api/lab-imaging/lab-items)는 검사서비스와 미확정 — 합의되면 수정 필요
+    @Override
+    public List<LabOrderApiDto.LabItem> searchLabItem(String name) {
+        LabOrderApiDto.LabItemSearchResponse response = labRestClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/lab-imaging/lab-items")
+                        .queryParam("name", name)
+                        .build())
+                .retrieve()
+                .body(LabOrderApiDto.LabItemSearchResponse.class);
+
+        if (response == null) {
+            return List.of();
+        }
+        return response.data();
     }
 }

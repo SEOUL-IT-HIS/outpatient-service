@@ -1,6 +1,7 @@
 package kr.co.seoulit.his.outpatientservice.prescription.controller;
 
 import kr.co.seoulit.his.outpatientservice.common.ApiResponse;
+import kr.co.seoulit.his.outpatientservice.common.client.lab.LabOrderApiDto;
 import kr.co.seoulit.his.outpatientservice.common.client.pharmacy.PharmacyApiDto;
 import kr.co.seoulit.his.outpatientservice.prescription.dto.PrescriptionCreateDto;
 import kr.co.seoulit.his.outpatientservice.prescription.dto.PrescriptionDto;
@@ -18,11 +19,12 @@ public class PrescriptionController {
 
     private final PrescriptionService prescriptionService;
 
-    // 처방 목록 조회 GET /api/outpatient/prescriptions?keyword={keyword}
+    // 처방 목록 조회 GET /api/outpatient/prescriptions?keyword={keyword}&receptionId={receptionId}
     @GetMapping
     public ApiResponse<List<PrescriptionDto>> getPrescriptions(
-            @RequestParam(name = "keyword", required = false) String keyword) {
-        List<PrescriptionDto> response = prescriptionService.getPrescriptions(keyword);
+            @RequestParam(name = "keyword", required = false) String keyword,
+            @RequestParam(name = "receptionId", required = false) String receptionId) {
+        List<PrescriptionDto> response = prescriptionService.getPrescriptions(keyword, receptionId);
         return ApiResponse.success(response);
     }
 
@@ -39,6 +41,33 @@ public class PrescriptionController {
             @PathVariable String encounterId,
             @RequestBody PrescriptionCreateDto request) {
         PrescriptionDto response = prescriptionService.createPrescription(encounterId, request);
+        return ApiResponse.success(response);
+    }
+
+    // 입원 처방 등록 POST /api/outpatient/prescriptions/admission/{admissionId} (병동 서비스 서버 간 호출)
+    @PostMapping("/admission/{admissionId}")
+    public ApiResponse<PrescriptionDto> createPrescriptionForAdmission(
+            @PathVariable String admissionId,
+            @RequestBody PrescriptionCreateDto request) {
+        PrescriptionDto response = prescriptionService.createPrescriptionForAdmission(admissionId, request);
+        return ApiResponse.success(response);
+    }
+
+    // 응급 처방 등록 POST /api/outpatient/prescriptions/emergency/{receptionId} (응급 서비스 서버 간 호출)
+    @PostMapping("/emergency/{receptionId}")
+    public ApiResponse<PrescriptionDto> createPrescriptionForEmergency(
+            @PathVariable String receptionId,
+            @RequestBody PrescriptionCreateDto request) {
+        PrescriptionDto response = prescriptionService.createPrescriptionForEmergency(receptionId, request);
+        return ApiResponse.success(response);
+    }
+
+    // 구두처방 확정 PATCH /api/outpatient/prescriptions/{prescriptionId}/verbal-confirm?confirmedBy={의사ID}
+    @PatchMapping("/{prescriptionId}/verbal-confirm")
+    public ApiResponse<PrescriptionDto> confirmVerbalOrder(
+            @PathVariable String prescriptionId,
+            @RequestParam("confirmedBy") String confirmedBy) {
+        PrescriptionDto response = prescriptionService.confirmVerbalOrder(prescriptionId, confirmedBy);
         return ApiResponse.success(response);
     }
 
@@ -61,6 +90,14 @@ public class PrescriptionController {
     public ApiResponse<List<PharmacyApiDto.Medication>> searchMedication(
             @RequestParam("name") String name) {
         List<PharmacyApiDto.Medication> response = prescriptionService.searchMedication(name);
+        return ApiResponse.success(response);
+    }
+
+    // 검사항목 검색 GET /api/outpatient/prescriptions/lab-items/search?name={name}
+    @GetMapping("/lab-items/search")
+    public ApiResponse<List<LabOrderApiDto.LabItem>> searchLabItem(
+            @RequestParam("name") String name) {
+        List<LabOrderApiDto.LabItem> response = prescriptionService.searchLabItem(name);
         return ApiResponse.success(response);
     }
 

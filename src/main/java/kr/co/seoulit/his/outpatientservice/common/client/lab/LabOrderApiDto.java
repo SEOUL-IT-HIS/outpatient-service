@@ -13,12 +13,32 @@ public final class LabOrderApiDto {
             String encounterId,      // 진료 건 ID
             String patientId,        // 환자 UUID
             String doctorId,         // 오더를 낸 의사 ID
+            String encounterType,    // 채널 구분 OPD/ER/IP (알 수 없으면 null — 검사서비스가 OPD로 처리)
+            String urgencyYn,        // 응급 여부 Y/N (ER 채널이거나 우선순위가 STAT이면 Y)
+            String admissionId,      // 입원 건일 때만 값, 그 외는 null
+            String receptionId,      // 응급 건일 때만 값(접수ID), 그 외는 null
             List<LabOrderItemRequestDto> orderItems // 검사 항목 코드 리스트
     ) {}
 
     public record LabOrderItemRequestDto(
             String itemCode,         // 검사 항목 코드 (예: CBC 등)
             String itemName          // 검사 항목 명
+    ) {}
+
+    // 검사 항목 카탈로그 검색 — 약품의 medications/search에 대응. 실제 LAB REST 경로/응답 형식은 검사서비스 확인 필요(잠정).
+    @Schema(name = "LabItem")
+    public record LabItem(
+            String itemCode,     // 검사 항목 코드 (처방 itemCode로 매핑)
+            String itemName,     // 검사명
+            String specimenType, // 검체 종류
+            String departmentCode // 검사 분류/수행 부서 코드
+    ) {}
+
+    @Schema(name = "LabItemSearchResponse")
+    public record LabItemSearchResponse(
+            int code,
+            String message,
+            List<LabItem> data
     ) {}
 
     @Schema(name = "LabOrderResult")

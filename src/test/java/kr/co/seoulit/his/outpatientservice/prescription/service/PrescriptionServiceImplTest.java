@@ -1,12 +1,19 @@
 package kr.co.seoulit.his.outpatientservice.prescription.service;
 
 import kr.co.seoulit.his.outpatientservice.common.cache.CommonCodeCache;
+import kr.co.seoulit.his.outpatientservice.common.client.lab.LabClient;
+import kr.co.seoulit.his.outpatientservice.common.client.lab.LabOrderApiDto;
 import kr.co.seoulit.his.outpatientservice.common.client.lab.LabOrderDispatcher;
 import kr.co.seoulit.his.outpatientservice.common.client.lab.LabResultEventDto;
 import kr.co.seoulit.his.outpatientservice.common.client.patient.PatientClient;
 import kr.co.seoulit.his.outpatientservice.common.client.pharmacy.PharmacyClient;
+import kr.co.seoulit.his.outpatientservice.common.client.pharmacy.PharmacyEventDto;
 import kr.co.seoulit.his.outpatientservice.common.client.pharmacy.PharmacyPublisher;
+import kr.co.seoulit.his.outpatientservice.common.exception.BusinessException;
+import kr.co.seoulit.his.outpatientservice.common.exception.ErrorCode;
+import kr.co.seoulit.his.outpatientservice.outpatientcare.entity.Encounter;
 import kr.co.seoulit.his.outpatientservice.outpatientcare.repository.EncounterRepository;
+import kr.co.seoulit.his.outpatientservice.prescription.dto.PrescriptionCreateDto;
 import kr.co.seoulit.his.outpatientservice.prescription.dto.PrescriptionDto;
 import kr.co.seoulit.his.outpatientservice.prescription.dto.PrescriptionItemDto;
 import kr.co.seoulit.his.outpatientservice.prescription.entity.ExamResultRef;
@@ -30,6 +37,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.*;
 
@@ -60,6 +68,8 @@ class PrescriptionServiceImplTest {
     private CommonCodeCache commonCodeCache;
     @Mock
     private ExamResultRefRepository examResultRefRepository;
+    @Mock
+    private LabClient labClient;
 
     private PrescriptionServiceImpl service;
 
@@ -68,7 +78,7 @@ class PrescriptionServiceImplTest {
         service = new PrescriptionServiceImpl(
                 prescriptionRepository, prescriptionItemRepository, prescriptionMapper,
                 patientClient, encounterRepository, labOrderDispatcher, pharmacyPublisher, pharmacyClient,
-                commonCodeCache, examResultRefRepository
+                commonCodeCache, examResultRefRepository, labClient
         );
     }
 
@@ -238,7 +248,7 @@ class PrescriptionServiceImplTest {
         PrescriptionServiceImpl realMapperService = new PrescriptionServiceImpl(
                 prescriptionRepository, prescriptionItemRepository, new PrescriptionMapperImpl(),
                 patientClient, encounterRepository, labOrderDispatcher, pharmacyPublisher, pharmacyClient,
-                commonCodeCache, examResultRefRepository
+                commonCodeCache, examResultRefRepository, labClient
         );
 
         Prescription prescription = new Prescription();
@@ -281,5 +291,400 @@ class PrescriptionServiceImplTest {
         assertThat(glucoseDto.getResultDetails().get(0).getResultValue()).isEqualTo("5.4");
 
         assertThat(dto.getItems().get(2).getResultDetails()).isNull();
+    }
+
+    // ---- 입원(admission) 처방 등록 ----
+
+    private PrescriptionCreateDto admissionRequest(String patientId, String prescribedBy, String departmentCode) {
+        PrescriptionCreateDto request = new PrescriptionCreateDto();
+        request.setPatientId(patientId);
+        request.setPrescribedBy(prescribedBy);
+        request.setDepartmentCode(departmentCode);
+        request.setServiceType("ADMISSION");
+        request.setOrderMethod("EMR");
+        request.setPriorityCode("ROUTINE");
+        request.setTimingCode("01");
+
+        PrescriptionItemDto item = new PrescriptionItemDto();
+        item.setPrescriptionType("약품");
+        item.setItemCode("195700020");
+        item.setItemName("타이레놀정500mg");
+        item.setDosage(1.0);
+        item.setDosageFormCd("TAB");
+        item.setFrequency("TID");
+        item.setDurationDays("3");
+        request.setItems(List.of(item));
+
+        return request;
+    }
+
+    @Test
+    void 입원_처방을_등록하면_Encounter_조회없이_요청값으로_저장된다() {
+        when(prescriptionRepository.save(any(Prescription.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(prescriptionMapper.toPrescriptionDto(any(Prescription.class))).thenReturn(new PrescriptionDto());
+        when(prescriptionMapper.toItemDtoList(anyList())).thenReturn(List.of());
+
+        PrescriptionCreateDto request = admissionRequest("P0001", "DR0001", "IM");
+
+        service.createPrescriptionForAdmission("ADM-1", request);
+
+        ArgumentCaptor<Prescription> prescriptionCaptor = ArgumentCaptor.forClass(Prescription.class);
+        verify(prescriptionRepository).save(prescriptionCaptor.capture());
+        Prescription saved = prescriptionCaptor.getValue();
+        assertThat(saved.getAdmissionId()).isEqualTo("ADM-1");
+        assertThat(saved.getEncounterId()).isNull();
+        assertThat(saved.getPatientId()).isEqualTo("P0001");
+        assertThat(saved.getPrescribedBy()).isEqualTo("DR0001");
+        assertThat(saved.getDepartmentCode()).isEqualTo("IM");
+        assertThat(saved.getStatus()).isEqualTo("ORDERED");
+        assertThat(saved.getPharmacySendStatus()).isEqualTo("PENDING");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<PrescriptionItem>> itemsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(prescriptionItemRepository).saveAll(itemsCaptor.capture());
+        PrescriptionItem savedItem = itemsCaptor.getValue().get(0);
+        assertThat(savedItem.getPrescriptionId()).isEqualTo(saved.getPrescriptionId());
+        assertThat(savedItem.getPrescriptionType()).isEqualTo("약품");
+        assertThat(savedItem.getItemCode()).isEqualTo("195700020");
+
+        verifyNoInteractions(encounterRepository); // 입원 경로는 Encounter를 조회하지 않는다
+    }
+
+    @Test
+    void 입원_처방_등록시_patientId가_없으면_INVALID_INPUT_예외를_던진다() {
+        PrescriptionCreateDto request = admissionRequest(null, "DR0001", "IM");
+
+        assertThatThrownBy(() -> service.createPrescriptionForAdmission("ADM-1", request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_INPUT);
+
+        verifyNoInteractions(prescriptionRepository, prescriptionItemRepository);
+    }
+
+    @Test
+    void 입원_처방_등록시_prescribedBy가_없으면_INVALID_INPUT_예외를_던진다() {
+        PrescriptionCreateDto request = admissionRequest("P0001", null, "IM");
+
+        assertThatThrownBy(() -> service.createPrescriptionForAdmission("ADM-1", request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_INPUT);
+
+        verifyNoInteractions(prescriptionRepository, prescriptionItemRepository);
+    }
+
+    // ---- 약제실 전송(dispatchPharmacyOrders) — 외래/입원 경로 분기 ----
+
+    private PrescriptionItem drugItem(String prescriptionId) {
+        PrescriptionItem item = new PrescriptionItem();
+        item.setItemId("ITEM-1");
+        item.setPrescriptionId(prescriptionId);
+        item.setPrescriptionType("약품");
+        item.setItemCode("195700020");
+        item.setItemName("타이레놀정500mg");
+        return item;
+    }
+
+    @Test
+    void 외래_처방은_기존대로_Encounter에서_처방과_코드를_가져와_전송한다() {
+        Prescription prescription = new Prescription();
+        prescription.setPrescriptionId("RX-1");
+        prescription.setEncounterId("ENC-1");
+        prescription.setPrescribedAt(LocalDateTime.now());
+        when(prescriptionRepository.findById("RX-1")).thenReturn(Optional.of(prescription));
+
+        Encounter encounter = new Encounter();
+        encounter.setDepartmentCode("DEPT-A");
+        when(encounterRepository.findById("ENC-1")).thenReturn(Optional.of(encounter));
+
+        when(prescriptionItemRepository.findByPrescriptionId("RX-1")).thenReturn(List.of(drugItem("RX-1")));
+        when(pharmacyPublisher.publish(any())).thenReturn(true);
+
+        service.dispatchPharmacyOrders("RX-1");
+
+        ArgumentCaptor<PharmacyEventDto.PharmacyOrderData> dataCaptor = ArgumentCaptor.forClass(PharmacyEventDto.PharmacyOrderData.class);
+        verify(pharmacyPublisher).publish(dataCaptor.capture());
+        assertThat(dataCaptor.getValue().departmentId()).isEqualTo("DEPT-A");
+        assertThat(prescription.getPharmacySendStatus()).isEqualTo("SENT");
+    }
+
+    @Test
+    void 입원_처방은_Encounter_대신_저장된_departmentCode로_약제실에_전송된다() {
+        Prescription prescription = new Prescription();
+        prescription.setPrescriptionId("RX-2");
+        prescription.setAdmissionId("ADM-1");
+        prescription.setDepartmentCode("IM");
+        prescription.setPrescribedAt(LocalDateTime.now());
+        when(prescriptionRepository.findById("RX-2")).thenReturn(Optional.of(prescription));
+
+        when(prescriptionItemRepository.findByPrescriptionId("RX-2")).thenReturn(List.of(drugItem("RX-2")));
+        when(pharmacyPublisher.publish(any())).thenReturn(true);
+
+        service.dispatchPharmacyOrders("RX-2");
+
+        ArgumentCaptor<PharmacyEventDto.PharmacyOrderData> dataCaptor = ArgumentCaptor.forClass(PharmacyEventDto.PharmacyOrderData.class);
+        verify(pharmacyPublisher).publish(dataCaptor.capture());
+        assertThat(dataCaptor.getValue().departmentId()).isEqualTo("IM");
+        assertThat(prescription.getPharmacySendStatus()).isEqualTo("SENT");
+
+        verifyNoInteractions(encounterRepository); // encounterId가 없으니 Encounter는 조회하지 않는다
+    }
+
+    @Test
+    void 입원_처방에_departmentCode도_없으면_INVALID_INPUT_예외를_던지고_전송하지_않는다() {
+        Prescription prescription = new Prescription();
+        prescription.setPrescriptionId("RX-3");
+        prescription.setAdmissionId("ADM-1");
+        when(prescriptionRepository.findById("RX-3")).thenReturn(Optional.of(prescription));
+
+        assertThatThrownBy(() -> service.dispatchPharmacyOrders("RX-3"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_INPUT);
+
+        verifyNoInteractions(encounterRepository, pharmacyPublisher, prescriptionItemRepository);
+    }
+
+    // ---- 검사오더 전송 payload (채널 구분 / 응급 여부 / 입원ID) ----
+
+    @Test
+    void 진료구분을_검사서비스_채널구분으로_변환한다() {
+        assertThat(PrescriptionServiceImpl.toEncounterType("OP")).isEqualTo("OPD");
+        assertThat(PrescriptionServiceImpl.toEncounterType("외래")).isEqualTo("OPD");
+        assertThat(PrescriptionServiceImpl.toEncounterType("ADMISSION")).isEqualTo("IP");
+        assertThat(PrescriptionServiceImpl.toEncounterType("er")).isEqualTo("ER");
+        assertThat(PrescriptionServiceImpl.toEncounterType("UNKNOWN")).isNull(); // 모르는 값은 null (검사서비스가 OPD로 처리)
+        assertThat(PrescriptionServiceImpl.toEncounterType(null)).isNull();
+    }
+
+    @Test
+    void 응급여부는_ER채널이거나_우선순위가_STAT이면_Y이다() {
+        assertThat(PrescriptionServiceImpl.isUrgent("ER", "03")).isTrue();
+        assertThat(PrescriptionServiceImpl.isUrgent("OPD", "01")).isTrue();   // ADM 공통코드 STAT
+        assertThat(PrescriptionServiceImpl.isUrgent("IP", "STAT")).isTrue();  // 옛 데이터 문자열
+        assertThat(PrescriptionServiceImpl.isUrgent("OPD", "03")).isFalse();  // Routine
+        assertThat(PrescriptionServiceImpl.isUrgent("OPD", "02")).isFalse();  // Urgent는 STAT이 아님
+        assertThat(PrescriptionServiceImpl.isUrgent("OPD", "URGENT")).isFalse();
+        assertThat(PrescriptionServiceImpl.isUrgent(null, null)).isFalse();
+    }
+
+    private LabOrderApiDto.LabOrderCreateRequestDto dispatchAndCaptureLabRequest(Prescription prescription) {
+        when(prescriptionRepository.findById("RX-1")).thenReturn(Optional.of(prescription));
+        PrescriptionItem item = labItem("ITEM-1", null);
+        item.setItemCode("01");
+        when(prescriptionItemRepository.findByPrescriptionId("RX-1")).thenReturn(List.of(item));
+        when(labOrderDispatcher.dispatch(any())).thenReturn(new LabOrderApiDto.DispatchOutcome("PENDING", null, null));
+
+        service.dispatchLabOrders("RX-1");
+
+        ArgumentCaptor<LabOrderApiDto.LabOrderCreateRequestDto> captor =
+                ArgumentCaptor.forClass(LabOrderApiDto.LabOrderCreateRequestDto.class);
+        verify(labOrderDispatcher).dispatch(captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    void 외래_처방의_검사오더는_OPD_비응급_입원ID없음으로_전송된다() {
+        Prescription prescription = new Prescription();
+        prescription.setPrescriptionId("RX-1");
+        prescription.setServiceType("OP");
+        prescription.setPriorityCode("03");
+
+        LabOrderApiDto.LabOrderCreateRequestDto request = dispatchAndCaptureLabRequest(prescription);
+
+        assertThat(request.encounterType()).isEqualTo("OPD");
+        assertThat(request.urgencyYn()).isEqualTo("N");
+        assertThat(request.admissionId()).isNull();
+    }
+
+    @Test
+    void 입원_STAT_처방의_검사오더는_IP_응급_입원ID가_담겨_전송된다() {
+        Prescription prescription = new Prescription();
+        prescription.setPrescriptionId("RX-1");
+        prescription.setServiceType("ADMISSION");
+        prescription.setPriorityCode("01");
+        prescription.setAdmissionId("ADM-1");
+
+        LabOrderApiDto.LabOrderCreateRequestDto request = dispatchAndCaptureLabRequest(prescription);
+
+        assertThat(request.encounterType()).isEqualTo("IP");
+        assertThat(request.urgencyYn()).isEqualTo("Y");
+        assertThat(request.admissionId()).isEqualTo("ADM-1");
+    }
+
+    @Test
+    void 응급_STAT_처방의_검사오더는_ER_응급_접수ID가_담겨_전송된다() {
+        Prescription prescription = new Prescription();
+        prescription.setPrescriptionId("RX-1");
+        prescription.setServiceType("ER");
+        prescription.setPriorityCode("01");
+        prescription.setReceptionId("RCP-1");
+
+        LabOrderApiDto.LabOrderCreateRequestDto request = dispatchAndCaptureLabRequest(prescription);
+
+        assertThat(request.encounterType()).isEqualTo("ER");
+        assertThat(request.urgencyYn()).isEqualTo("Y");
+        assertThat(request.receptionId()).isEqualTo("RCP-1");
+        assertThat(request.admissionId()).isNull();
+    }
+
+    // ---- 응급(emergency) 처방 등록 ----
+
+    private PrescriptionCreateDto emergencyRequest(String patientId, String prescribedBy, String departmentCode) {
+        PrescriptionCreateDto request = new PrescriptionCreateDto();
+        request.setPatientId(patientId);
+        request.setPrescribedBy(prescribedBy);
+        request.setDepartmentCode(departmentCode);
+        request.setServiceType("ER");
+        request.setOrderMethod("01");
+        request.setPriorityCode("01");
+        request.setTimingCode("03");
+        return request;
+    }
+
+    @Test
+    void 응급_처방을_등록하면_Encounter_조회없이_요청값으로_저장된다() {
+        when(prescriptionRepository.save(any(Prescription.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(prescriptionMapper.toPrescriptionDto(any(Prescription.class))).thenReturn(new PrescriptionDto());
+        when(prescriptionMapper.toItemDtoList(anyList())).thenReturn(List.of());
+
+        PrescriptionCreateDto request = emergencyRequest("P0001", "DR0001", "10");
+
+        service.createPrescriptionForEmergency("RCP-1", request);
+
+        ArgumentCaptor<Prescription> prescriptionCaptor = ArgumentCaptor.forClass(Prescription.class);
+        verify(prescriptionRepository).save(prescriptionCaptor.capture());
+        Prescription saved = prescriptionCaptor.getValue();
+        assertThat(saved.getReceptionId()).isEqualTo("RCP-1");
+        assertThat(saved.getEncounterId()).isNull();
+        assertThat(saved.getPatientId()).isEqualTo("P0001");
+        assertThat(saved.getPrescribedBy()).isEqualTo("DR0001");
+        assertThat(saved.getDepartmentCode()).isEqualTo("10");
+        assertThat(saved.getStatus()).isEqualTo("ORDERED");
+        assertThat(saved.getPharmacySendStatus()).isEqualTo("PENDING");
+
+        verifyNoInteractions(encounterRepository); // 응급 경로는 Encounter를 조회하지 않는다
+    }
+
+    @Test
+    void 응급_처방_등록시_patientId가_없으면_INVALID_INPUT_예외를_던진다() {
+        PrescriptionCreateDto request = emergencyRequest(null, "DR0001", "10");
+
+        assertThatThrownBy(() -> service.createPrescriptionForEmergency("RCP-1", request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_INPUT);
+
+        verifyNoInteractions(prescriptionRepository, prescriptionItemRepository);
+    }
+
+    @Test
+    void 응급_처방_등록시_prescribedBy가_없으면_INVALID_INPUT_예외를_던진다() {
+        PrescriptionCreateDto request = emergencyRequest("P0001", null, "10");
+
+        assertThatThrownBy(() -> service.createPrescriptionForEmergency("RCP-1", request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_INPUT);
+
+        verifyNoInteractions(prescriptionRepository, prescriptionItemRepository);
+    }
+
+    // ---- 구두처방 확정(confirmVerbalOrder) ----
+
+    @Test
+    void 구두처방을_확정하면_확정일시와_확정자가_기록된다() {
+        Prescription prescription = new Prescription();
+        prescription.setPrescriptionId("RX-1");
+        prescription.setVerbalYn("Y");
+        when(prescriptionRepository.findById("RX-1")).thenReturn(Optional.of(prescription));
+        when(prescriptionRepository.save(any(Prescription.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(prescriptionMapper.toPrescriptionDto(any(Prescription.class))).thenReturn(new PrescriptionDto());
+        when(prescriptionItemRepository.findByPrescriptionId("RX-1")).thenReturn(List.of());
+        when(prescriptionMapper.toItemDtoList(anyList())).thenReturn(List.of());
+
+        service.confirmVerbalOrder("RX-1", "DR0001");
+
+        assertThat(prescription.getVerbalConfirmedBy()).isEqualTo("DR0001");
+        assertThat(prescription.getVerbalConfirmedAt()).isNotNull();
+    }
+
+    @Test
+    void 구두처방이_아닌_처방을_확정하려하면_INVALID_INPUT_예외를_던진다() {
+        Prescription prescription = new Prescription();
+        prescription.setPrescriptionId("RX-1");
+        prescription.setVerbalYn("N");
+        when(prescriptionRepository.findById("RX-1")).thenReturn(Optional.of(prescription));
+
+        assertThatThrownBy(() -> service.confirmVerbalOrder("RX-1", "DR0001"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_INPUT);
+    }
+
+    @Test
+    void 이미_확정된_구두처방을_다시_확정하려하면_CONFLICT_예외를_던진다() {
+        Prescription prescription = new Prescription();
+        prescription.setPrescriptionId("RX-1");
+        prescription.setVerbalYn("Y");
+        prescription.setVerbalConfirmedAt(LocalDateTime.now());
+        when(prescriptionRepository.findById("RX-1")).thenReturn(Optional.of(prescription));
+
+        assertThatThrownBy(() -> service.confirmVerbalOrder("RX-1", "DR0001"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CONFLICT);
+    }
+
+    // ---- 검사항목 검색(searchLabItem) ----
+
+    @Test
+    void 검사항목_검색은_LabClient에_위임한다() {
+        when(labClient.searchLabItem("CBC")).thenReturn(List.of(
+                new LabOrderApiDto.LabItem("LAB001", "CBC(일반혈액검사)", "혈액", "12")));
+
+        List<LabOrderApiDto.LabItem> result = service.searchLabItem("CBC");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).itemCode()).isEqualTo("LAB001");
+        verify(labClient).searchLabItem("CBC");
+    }
+
+    // ---- 처방 목록 조회 — receptionId 필터 ----
+
+    @Test
+    void receptionId로_목록을_조회하면_같은_접수건_처방만_남는다() {
+        when(prescriptionRepository.findAll(any(org.springframework.data.domain.Sort.class)))
+                .thenReturn(List.of(new Prescription(), new Prescription()));
+
+        PrescriptionDto own = new PrescriptionDto();
+        own.setPrescriptionId("RX-1");
+        own.setReceptionId("RCP-1");
+        PrescriptionDto other = new PrescriptionDto();
+        other.setPrescriptionId("RX-2");
+        other.setReceptionId("RCP-2");
+        when(prescriptionMapper.toPrescriptionDtoList(anyList())).thenReturn(List.of(own, other));
+
+        List<PrescriptionDto> result = service.getPrescriptions(null, "RCP-1");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getPrescriptionId()).isEqualTo("RX-1");
+    }
+
+    @Test
+    void receptionId가_없으면_전체_목록을_반환한다() {
+        when(prescriptionRepository.findAll(any(org.springframework.data.domain.Sort.class)))
+                .thenReturn(List.of(new Prescription(), new Prescription()));
+
+        PrescriptionDto a = new PrescriptionDto();
+        a.setPrescriptionId("RX-1");
+        PrescriptionDto b = new PrescriptionDto();
+        b.setPrescriptionId("RX-2");
+        when(prescriptionMapper.toPrescriptionDtoList(anyList())).thenReturn(List.of(a, b));
+
+        List<PrescriptionDto> result = service.getPrescriptions(null, null);
+
+        assertThat(result).hasSize(2);
     }
 }

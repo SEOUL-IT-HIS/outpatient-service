@@ -59,6 +59,10 @@ public class LabOrderKafkaDispatcher implements LabOrderDispatcher {
                         request.encounterId(),
                         request.patientId(),
                         request.doctorId(),
+                        request.encounterType(),
+                        request.urgencyYn(),
+                        request.admissionId(),
+                        request.receptionId(),
                         orderItems
                 )
         );

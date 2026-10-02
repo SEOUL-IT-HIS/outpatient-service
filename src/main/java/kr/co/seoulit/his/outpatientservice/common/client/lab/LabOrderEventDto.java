@@ -19,6 +19,11 @@ public final class LabOrderEventDto {
 
     public static final String STATUS_ACCEPTED = "ACCEPTED";
 
+    // 오더 채널 구분 (검사서비스와 합의된 값)
+    public static final String ENCOUNTER_TYPE_OPD = "OPD";
+    public static final String ENCOUNTER_TYPE_ER = "ER";
+    public static final String ENCOUNTER_TYPE_IP = "IP";
+
     //외래에서 검사실로 보낼때
     @JsonIgnoreProperties(ignoreUnknown = true)
     @Schema(name = "LabOrderRequestedEvent")
@@ -39,6 +44,10 @@ public final class LabOrderEventDto {
             String encounterId,
             String patientId,
             String doctorId,
+            String encounterType,   // 채널 구분 OPD/ER/IP
+            String urgencyYn,       // 응급 여부 Y/N
+            String admissionId,     // 입원 건일 때만 값
+            String receptionId,     // 응급 건일 때만 값(접수ID)
             List<OrderItem> orderItems
     ) {}
 

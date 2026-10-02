@@ -16,7 +16,9 @@ public class Prescription {
     @Column(name = "PRESCRIPTION_ID", length = 36)
     private String prescriptionId; // 처방 ID
 
-    @Column(name = "ENCOUNTER_ID", nullable = false, length = 36)
+    // 입원(admission)/응급(emergency) 경로로 등록된 처방은 외래 진료(encounter)가 없어 null일 수 있다
+    // — admissionId 또는 receptionId가 대신 채워진다.
+    @Column(name = "ENCOUNTER_ID", length = 36)
     private String encounterId; // 진료 ID
 
     @Column(name = "PATIENT_ID", nullable = false, length = 36)
@@ -46,11 +48,15 @@ public class Prescription {
     @Column(name = "ADMISSION_ID", length = 36)
     private String admissionId; // 입원 ID
 
+    // 응급(emergency) 경로 전용 — encounterId가 없을 때 접수ID를 담는다.
+    @Column(name = "RECEPTION_ID", length = 36)
+    private String receptionId; // 접수 ID (응급)
+
     @Column(name = "PRIORITY_CODE", length = 80)
     private String priorityCode; // 우선순위코드 (ROUTINE/URGENT/STAT)
 
     @Column(name = "TIMING_CODE", length = 80)
-    private String timingCode; // 처방패턴코드 (SCHEDULED/PRN/ONCE)
+    private String timingCode; // 처방패턴코드 (ADM 공통코드 ORDER_TIMING_CD: 01 Scheduled/02 PRN/03 Once)
 
     @Column(name = "VERBAL_YN", length = 1)
     private String verbalYn; // 구두처방여부 (Y/N)
@@ -87,4 +93,8 @@ public class Prescription {
 
     @Column(name = "PHARMACY_SENT_AT")
     private LocalDateTime pharmacySentAt;
+
+    // 입원 경로 전용 — encounterId가 없을 때 dispatchPharmacyOrders가 Encounter 대신 이 값을 쓴다.
+    @Column(name = "DEPARTMENT_CODE", length = 36)
+    private String departmentCode; // 처방과 코드
 }

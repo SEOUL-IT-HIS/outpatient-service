@@ -19,13 +19,17 @@ public class PrescriptionDto {
     private String prescribedBy;        // 처방자 ID
     private LocalDateTime cancelledAt;  // 취소일시
     private String cancelReason;        // 취소사유
-    private String orderMethod;         // 처방유형
+    private String orderMethod;         // 처방유형코드 (ADM 공통코드 ORDER_METHOD_CD 의 codeValue)
+    private String orderMethodName;     // 처방유형명 (ADM 공통코드 ORDER_METHOD_CD 연동)
     private String admissionId;         // 입원 ID
+    private String receptionId;         // 접수 ID (응급 경로 전용)
+    private String departmentCode;      // 처방과 코드 (입원/응급 경로 전용)
 
     private String priorityCode;        // 우선순위코드 (ADM 공통코드 ORDER_PRIORITY_CD 의 codeValue)
     private String priorityName;        // 우선순위명 (ADM 공통코드 ORDER_PRIORITY_CD 연동)
-    private String timingCode;          // 처방패턴코드 (SCHEDULED/PRN/ONCE)
-    private String verbalYn;            // 구두처방여부 (Y/N)
+    private String timingCode;          // 처방패턴코드 (ADM 공통코드 ORDER_TIMING_CD 의 codeValue)
+    private String timingName;          // 처방패턴명 (ADM 공통코드 ORDER_TIMING_CD 연동)
+    private String verbalYn;           // 구두처방여부 (Y/N)
     private LocalDateTime verbalConfirmedAt; // 구두처방확정일시
     private String verbalConfirmedBy;   // 구두처방확정자 ID
     private String recorderId;          // 입력자 ID
