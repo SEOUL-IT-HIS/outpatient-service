@@ -8,10 +8,12 @@ import kr.co.seoulit.his.outpatientservice.prescription.dto.PrescriptionDto;
 import kr.co.seoulit.his.outpatientservice.prescription.dto.PrescriptionItemDto;
 import kr.co.seoulit.his.outpatientservice.prescription.service.PrescriptionService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/outpatient/prescriptions")
 @RequiredArgsConstructor
@@ -19,12 +21,13 @@ public class PrescriptionController {
 
     private final PrescriptionService prescriptionService;
 
-    // 처방 목록 조회 GET /api/outpatient/prescriptions?keyword={keyword}&receptionId={receptionId}
+    // 처방 목록 조회 GET /api/outpatient/prescriptions?keyword={keyword}&receptionId={receptionId}&encounterId={encounterId}
     @GetMapping
     public ApiResponse<List<PrescriptionDto>> getPrescriptions(
             @RequestParam(name = "keyword", required = false) String keyword,
-            @RequestParam(name = "receptionId", required = false) String receptionId) {
-        List<PrescriptionDto> response = prescriptionService.getPrescriptions(keyword, receptionId);
+            @RequestParam(name = "receptionId", required = false) String receptionId,
+            @RequestParam(name = "encounterId", required = false) String encounterId) {
+        List<PrescriptionDto> response = prescriptionService.getPrescriptions(keyword, receptionId, encounterId);
         return ApiResponse.success(response);
     }
 
@@ -54,11 +57,22 @@ public class PrescriptionController {
     }
 
     // 응급 처방 등록 POST /api/outpatient/prescriptions/emergency/{receptionId} (응급 서비스 서버 간 호출)
+    // dispatchNow=true이고 약품 항목이 있으면 등록(커밋) 직후 약제실로 자동 전송한다.
+    // 전송이 실패해도 등록은 성공으로 응답하고 pharmacySendStatus로 알려준다 — 이후 dispatch-pharmacy로 재전송한다.
     @PostMapping("/emergency/{receptionId}")
     public ApiResponse<PrescriptionDto> createPrescriptionForEmergency(
             @PathVariable String receptionId,
             @RequestBody PrescriptionCreateDto request) {
         PrescriptionDto response = prescriptionService.createPrescriptionForEmergency(receptionId, request);
+
+        if (Boolean.TRUE.equals(request.getDispatchNow()) && response.getPharmacySendStatus() != null) {
+            try {
+                response.setPharmacySendStatus(prescriptionService.dispatchPharmacyOrders(response.getPrescriptionId()));
+            } catch (Exception e) {
+                // 등록은 이미 커밋됐다. 상태는 PENDING 그대로 두고 응급이 재전송하게 한다.
+                log.error("[응급 약제 자동 전송 실패] prescriptionId={}, message={}", response.getPrescriptionId(), e.getMessage());
+            }
+        }
         return ApiResponse.success(response);
     }
 
@@ -93,10 +107,21 @@ public class PrescriptionController {
         return ApiResponse.success(response);
     }
 
-    // 검사항목 검색 GET /api/outpatient/prescriptions/lab-items/search?name={name}
+    // 약품 목록 GET /api/outpatient/prescriptions/medications?name={name}&page={page}&size={size}
+    // name 생략 시 전체를 이름순으로, 약가코드가 없는 약은 제외. size는 최대 100.
+    @GetMapping("/medications")
+    public ApiResponse<PharmacyApiDto.MedicationPage> listMedications(
+            @RequestParam(name = "name", required = false) String name,
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "100") int size) {
+        PharmacyApiDto.MedicationPage response = prescriptionService.listMedications(name, page, size);
+        return ApiResponse.success(response);
+    }
+
+    // 검사항목 검색 GET /api/outpatient/prescriptions/lab-items/search?name={name} (name 생략 시 전체 목록)
     @GetMapping("/lab-items/search")
     public ApiResponse<List<LabOrderApiDto.LabItem>> searchLabItem(
-            @RequestParam("name") String name) {
+            @RequestParam(name = "name", required = false) String name) {
         List<LabOrderApiDto.LabItem> response = prescriptionService.searchLabItem(name);
         return ApiResponse.success(response);
     }

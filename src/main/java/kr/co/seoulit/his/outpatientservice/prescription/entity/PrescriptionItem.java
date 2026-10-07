@@ -20,10 +20,10 @@ public class PrescriptionItem {
     private String prescriptionId; // 처방 ID
 
     @Column(name = "PRESCRIPTION_TYPE", length = 36)
-    private String prescriptionType; // 처방 유형 (약품, 검사, 수술/처치 등)
+    private String prescriptionType; // 처방 유형 (약품, 검사)
 
     @Column(name = "ITEM_CODE", length = 36)
-    private String itemCode; // 약품/검사/수술 코드
+    private String itemCode; // 약품/검사 코드
 
     @Column(name = "ITEM_NAME", length = 100)
     private String itemName; // 항목 명칭

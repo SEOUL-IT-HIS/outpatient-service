@@ -51,8 +51,10 @@ app:
   kafka:
     topics:
       lab-order-requested: opd.lab-order.requested.v1
+      lab-order-cancelled: opd.lab-order.cancelled.v1
       lab-order-resulted: lab.lab-order.resulted.v1
       pharmacy-order-requested: opd.pharmacy-order.requested.v1
+      pharmacy-order-cancelled: opd.pharmacy-order.cancelled.v1
       reception-registered: outpatient-patient-daily-list
       lab-result-reported: lab.lab-result.reported.v1
     consumer-group: outpatient-service.lab-order-resulted-consumer
@@ -66,8 +68,7 @@ spring:
     import: optional:classpath:application-local.yml
   data:
     redis:
-      #host: 192.168.1.128
-      host: localhost
+      host: ${REDIS_HOST:localhost}
       port: 6379
       password: ${REDIS_PASSWORD:}
   datasource:

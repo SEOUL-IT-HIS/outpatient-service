@@ -27,6 +27,12 @@ public class KafkaConfig {
         return TopicBuilder.name(topic).partitions(PARTITIONS).replicas(REPLICAS).build();
     }
 
+    //검사 오더 취소 토픽
+    @Bean
+    public NewTopic labOrderCancelledTopic(@Value("${app.kafka.topics.lab-order-cancelled}") String topic) {
+        return TopicBuilder.name(topic).partitions(PARTITIONS).replicas(REPLICAS).build();
+    }
+
     //검사 결과 회신 토픽
     @Bean
     public NewTopic labOrderResultedTopic(@Value("${app.kafka.topics.lab-order-resulted}") String topic) {

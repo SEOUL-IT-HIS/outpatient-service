@@ -21,6 +21,7 @@ import static org.mockito.Mockito.*;
 class LabOrderKafkaDispatcherTest {
 
     private static final String TOPIC = "opd.lab-order.requested.v1";
+    private static final String CANCEL_TOPIC = "opd.lab-order.cancelled.v1";
 
     @Mock
     private KafkaTemplate<String, String> kafkaTemplate;
@@ -31,7 +32,39 @@ class LabOrderKafkaDispatcherTest {
 
     @BeforeEach
     void setUp() {
-        dispatcher = new LabOrderKafkaDispatcher(kafkaTemplate, objectMapper, TOPIC);
+        dispatcher = new LabOrderKafkaDispatcher(kafkaTemplate, objectMapper, TOPIC, CANCEL_TOPIC);
+    }
+
+    private LabOrderApiDto.LabOrderCancelRequestDto sampleCancelRequest() {
+        return new LabOrderApiDto.LabOrderCancelRequestDto("RX-1", "오처방", "DOC-1",
+                List.of(new LabOrderApiDto.LabOrderCancelItemDto("CBC", "일반혈액검사", "LO-1")));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 취소_이벤트를_취소토픽에_prescriptionId를_key로_발행한다() throws Exception {
+        SendResult<String, String> sendResult = mock(SendResult.class);
+        when(kafkaTemplate.send(eq(CANCEL_TOPIC), eq("RX-1"), anyString()))
+                .thenReturn(CompletableFuture.completedFuture(sendResult));
+
+        boolean delivered = dispatcher.cancel(sampleCancelRequest());
+
+        assertThat(delivered).isTrue();
+        org.mockito.ArgumentCaptor<String> payload = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(kafkaTemplate).send(eq(CANCEL_TOPIC), eq("RX-1"), payload.capture());
+        var json = objectMapper.readTree(payload.getValue());
+        assertThat(json.get("eventType").asText()).isEqualTo("LabOrderCancelled");
+        assertThat(json.get("data").get("cancelReason").asText()).isEqualTo("오처방");
+        assertThat(json.get("data").get("cancelledItems").get(0).get("labOrderId").asText()).isEqualTo("LO-1");
+    }
+
+    @Test
+    void 취소_발행이_실패하면_false를_반환한다() {
+        CompletableFuture<SendResult<String, String>> failed = new CompletableFuture<>();
+        failed.completeExceptionally(new RuntimeException("broker down"));
+        when(kafkaTemplate.send(eq(CANCEL_TOPIC), eq("RX-1"), anyString())).thenReturn(failed);
+
+        assertThat(dispatcher.cancel(sampleCancelRequest())).isFalse();
     }
 
     private LabOrderApiDto.LabOrderCreateRequestDto sampleRequest() {

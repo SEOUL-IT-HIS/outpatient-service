@@ -11,8 +11,8 @@ import java.util.List;
 public class PrescriptionItemDto {
     private String itemId;            // 상세 아이템 ID
     private String prescriptionId;    // 처방 ID
-    private String prescriptionType;  // 처방 유형 (약품, 검사, 수술/처치 등)
-    private String itemCode;          // 약품/검사/수술 코드
+    private String prescriptionType;  // 처방 유형 (약품, 검사)
+    private String itemCode;          // 약품/검사 코드
     private String itemName;          // 항목 명칭
     private Double dosage;           // 용량
     private String frequency;         // 투여 횟수

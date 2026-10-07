@@ -22,4 +22,8 @@ public class PrescriptionCreateDto {
 
     // 응급(emergency) 경로 전용 — 구두처방 여부 (Y/N). 확정은 별도 verbal-confirm API로 처리한다.
     private String verbalYn;
+
+    // 응급(emergency) 경로 전용 — true면 등록 직후 약제실로 자동 전송한다(약품 항목이 있을 때만).
+    // 전송이 실패해도 등록은 성공하고 응답의 pharmacySendStatus가 FAILED로 내려가며, 이후 dispatch-pharmacy로 재전송한다.
+    private Boolean dispatchNow;
 }

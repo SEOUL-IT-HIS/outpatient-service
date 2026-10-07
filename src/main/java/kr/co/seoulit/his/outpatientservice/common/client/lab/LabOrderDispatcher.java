@@ -6,4 +6,7 @@ package kr.co.seoulit.his.outpatientservice.common.client.lab;
  */
 public interface LabOrderDispatcher {
     LabOrderApiDto.DispatchOutcome dispatch(LabOrderApiDto.LabOrderCreateRequestDto request);
+
+    /** 이미 전송한 검사오더의 취소 요청을 보낸다. 전달 성공 여부만 반환하며 예외는 던지지 않는다. */
+    boolean cancel(LabOrderApiDto.LabOrderCancelRequestDto request);
 }

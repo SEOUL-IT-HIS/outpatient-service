@@ -18,12 +18,21 @@ public class StubLabClient implements LabClient {
     }
 
     @Override
+    public LabOrderApiDto.LabOrderCancelResult cancelOrder(LabOrderApiDto.LabOrderCancelRequestDto request) {
+        List<LabOrderApiDto.CancelItemResult> items = request.cancelledItems().stream()
+                .map(item -> new LabOrderApiDto.CancelItemResult(item.itemCode(), "CANCELLED", "STUB 취소"))
+                .toList();
+        return new LabOrderApiDto.LabOrderCancelResult(
+                request.prescriptionId(), "LAB118", "STUB OK", "CANCELLED", items);
+    }
+
+    @Override
     public List<LabOrderApiDto.LabItem> searchLabItem(String name) {
         LabOrderApiDto.LabItem sample = new LabOrderApiDto.LabItem(
                 "LAB001",
                 "CBC(일반혈액검사)",
-                "혈액",
-                "12"
+                "GENERAL",
+                List.of("혈액")
         );
         return List.of(sample);
     }

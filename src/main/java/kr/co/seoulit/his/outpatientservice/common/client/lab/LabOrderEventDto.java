@@ -13,6 +13,7 @@ public final class LabOrderEventDto {
 
     //지금 주고받는 카프카메시지가 검사오더요청인지, 검사결과회신인지 구분
     public static final String EVENT_TYPE_REQUESTED = "LabOrderRequested";
+    public static final String EVENT_TYPE_CANCELLED = "LabOrderCancelled";
     public static final String SCHEMA_VERSION = "1.0";
     // SYSTEM_SOURCE_CD 공통코드(ADM DB 등록값) 기준 "Outpatient System" 코드값. 개발표준가이드의 "OPD" 문자열과 다르니 주의
     public static final String SOURCE_OPD = "01";
@@ -55,6 +56,34 @@ public final class LabOrderEventDto {
     public record OrderItem(
             String itemCode,
             String itemName
+    ) {}
+
+    //처방이 비활성화(취소)되어 이미 보낸 검사오더를 철회할 때
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    @Schema(name = "LabOrderCancelledEvent")
+    public record LabOrderCancelledEvent(
+            String eventId,
+            String eventType,
+            String version,
+            OffsetDateTime occurredAt,
+            String source,
+            String correlationId,
+            CancelledData data
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CancelledData(
+            String prescriptionId,
+            String cancelReason,
+            String cancelledBy,
+            List<CancelledItem> cancelledItems
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CancelledItem(
+            String itemCode,
+            String itemName,
+            String labOrderId       // LAB이 채번한 오더ID. Kafka 경로는 결과 이벤트로 받은 경우에만 값 존재
     ) {}
 
     //검사실에서 처리를 마친뒤 외래쪽으로 결과를 돌려줄때

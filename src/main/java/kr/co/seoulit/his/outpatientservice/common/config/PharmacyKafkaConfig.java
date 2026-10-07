@@ -19,4 +19,11 @@ public class PharmacyKafkaConfig {
     public NewTopic pharmacyOrderRequestedTopic(@Value("${app.kafka.topics.pharmacy-order-requested}") String topic) {
         return TopicBuilder.name(topic).partitions(PARTITIONS).replicas(REPLICAS).build();
     }
+
+    // 취소 토픽은 약제가 만들지 않고 구독만 한다 — 약제 배포 전에 이 토픽이 먼저 존재해야 한다
+    // (요청 토픽과 파티션 수가 같아야 같은 key의 요청/취소 순서가 유지된다)
+    @Bean
+    public NewTopic pharmacyOrderCancelledTopic(@Value("${app.kafka.topics.pharmacy-order-cancelled}") String topic) {
+        return TopicBuilder.name(topic).partitions(PARTITIONS).replicas(REPLICAS).build();
+    }
 }

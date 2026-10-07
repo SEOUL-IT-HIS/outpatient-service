@@ -27,15 +27,18 @@ public class LabOrderKafkaDispatcher implements LabOrderDispatcher {
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
     private final String requestedTopic;
+    private final String cancelledTopic;
 
     public LabOrderKafkaDispatcher(
             KafkaTemplate<String, String> kafkaTemplate,
             ObjectMapper objectMapper,
-            @Value("${app.kafka.topics.lab-order-requested}") String requestedTopic
+            @Value("${app.kafka.topics.lab-order-requested}") String requestedTopic,
+            @Value("${app.kafka.topics.lab-order-cancelled}") String cancelledTopic
     ) {
         this.kafkaTemplate = kafkaTemplate;
         this.objectMapper = objectMapper;
         this.requestedTopic = requestedTopic;
+        this.cancelledTopic = cancelledTopic;
     }
 
     //검사오더를 넘겨주면 이거를 카프카이벤트로 만들어 발송함
@@ -77,6 +80,42 @@ public class LabOrderKafkaDispatcher implements LabOrderDispatcher {
             log.error("[LAB Kafka] 검사오더 요청 이벤트 발행 실패 prescriptionId={}, message={}",
                     request.prescriptionId(), e.getMessage());
             return new LabOrderApiDto.DispatchOutcome("FAILED", null, null);
+        }
+    }
+
+    //처방 비활성화로 검사오더 취소 이벤트를 opd.lab-order.cancelled.v1 토픽으로 발행 (브로커 적재 확인까지만)
+    @Override
+    public boolean cancel(LabOrderApiDto.LabOrderCancelRequestDto request) {
+        String eventId = UUID.randomUUID().toString();
+        List<LabOrderEventDto.CancelledItem> cancelledItems = request.cancelledItems().stream()
+                .map(item -> new LabOrderEventDto.CancelledItem(item.itemCode(), item.itemName(), item.labOrderId()))
+                .toList();
+
+        LabOrderEventDto.LabOrderCancelledEvent event = new LabOrderEventDto.LabOrderCancelledEvent(
+                eventId,
+                LabOrderEventDto.EVENT_TYPE_CANCELLED,
+                LabOrderEventDto.SCHEMA_VERSION,
+                OffsetDateTime.now(),
+                LabOrderEventDto.SOURCE_OPD,
+                eventId,
+                new LabOrderEventDto.CancelledData(
+                        request.prescriptionId(),
+                        request.cancelReason(),
+                        request.cancelledBy(),
+                        cancelledItems
+                )
+        );
+
+        try {
+            String payload = objectMapper.writeValueAsString(event);
+            // 요청 이벤트와 같은 key(prescriptionId)를 써서 같은 파티션 안에서 요청 → 취소 순서가 유지된다.
+            kafkaTemplate.send(cancelledTopic, request.prescriptionId(), payload)
+                    .get(PUBLISH_ACK_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            return true;
+        } catch (Exception e) {
+            log.error("[LAB Kafka] 검사오더 취소 이벤트 발행 실패 prescriptionId={}, message={}",
+                    request.prescriptionId(), e.getMessage());
+            return false;
         }
     }
 }

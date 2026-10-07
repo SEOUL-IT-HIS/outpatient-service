@@ -45,4 +45,12 @@ public class PrescriptionDto {
 
     private String pharmacySendStatus;       // 약제실 전송 상태 (PENDING/SENT/FAILED)
     private LocalDateTime pharmacySentAt;    // 약제실 전송 일시
+
+    // 검사 전송 상태 요약 (목록 조회에서 receptionId 지정 시에만 채움) — 하나라도 FAILED면 FAILED,
+    // 아니면 하나라도 PENDING/미전송이면 PENDING, 전부 SENT면 SENT. 검사 항목이 없으면 null.
+    private String labSendStatus;
+
+    // 검사 결과 도착 상태 요약 (목록 조회에서 receptionId 지정 시에만 채움) — 결과가 하나라도 왔으면 COMPLETE,
+    // 하나도 안 왔으면 WAITING (일부만 온 경우도 COMPLETE로 봄, 전체 도착 여부는 구분하지 않음). 검사 항목이 없으면 null.
+    private String labResultStatus;
 }

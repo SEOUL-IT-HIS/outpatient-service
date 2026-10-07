@@ -19,6 +19,8 @@ public interface PrescriptionMapper {
     @Mapping(target = "priorityName", ignore = true)
     @Mapping(target = "timingName", ignore = true)
     @Mapping(target = "orderMethodName", ignore = true)
+    @Mapping(target = "labSendStatus", ignore = true)
+    @Mapping(target = "labResultStatus", ignore = true)
     PrescriptionDto toPrescriptionDto(Prescription entity);
     List<PrescriptionDto> toPrescriptionDtoList(List<Prescription> list);
 
