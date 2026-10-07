@@ -21,5 +21,7 @@ public class EncounterDto {
         private String status;           // 진료 상태 (WAITING, IN_PROGRESS, COMPLETED, CANCELLED)
         private LocalDate visitDate;     // 내원일
         private String visitReason;      // 방문 사유
+        private String visitType;        // 초진/재진 (INITIAL / REVISIT, 기존 데이터는 null)
+        private String receptionType;    // 예약/당일 (RESERVATION / WALK_IN, 기존 데이터는 null)
         private LocalDateTime createdAt; // 등록 일시
 }

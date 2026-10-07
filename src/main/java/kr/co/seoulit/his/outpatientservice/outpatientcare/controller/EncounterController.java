@@ -2,10 +2,12 @@ package kr.co.seoulit.his.outpatientservice.outpatientcare.controller;
 
 import kr.co.seoulit.his.outpatientservice.common.ApiResponse;
 import kr.co.seoulit.his.outpatientservice.outpatientcare.dto.EncounterDto;
+import kr.co.seoulit.his.outpatientservice.outpatientcare.dto.VisitHistoryDto;
 import kr.co.seoulit.his.outpatientservice.outpatientcare.service.OutpatientCareService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -24,5 +26,16 @@ public class EncounterController {
     public ApiResponse<List<EncounterDto>> getEncounters() {
         List<EncounterDto> response = outpatientCareService.getTodayEncounters();
         return ApiResponse.success(response);
+    }
+
+    // 환자 외래 진료 이력 조회 GET /api/outpatient/encounters/visit-history?patientId=&departmentCode=&withinDays=
+    // 접수(RCP)가 초진/재진을 판정할 때 서버 간 호출한다. 조회만 하며 환자정보/진단내용은 응답에 없다.
+    @GetMapping("/visit-history")
+    public ApiResponse<VisitHistoryDto> getVisitHistory(
+            @RequestParam(required = false) String patientId,
+            @RequestParam(required = false) String departmentCode,
+            @RequestParam(required = false) Integer withinDays
+    ) {
+        return ApiResponse.success(outpatientCareService.getVisitHistory(patientId, departmentCode, withinDays));
     }
 }

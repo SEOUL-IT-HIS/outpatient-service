@@ -48,6 +48,11 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
             encounter.setStatus(translateReceptionStatus(data.status()));
             encounter.setVisitDate(data.visitDate());
             encounter.setCreatedAt(LocalDateTime.now());
+        } else if ("CANCELLED".equals(translateReceptionStatus(data.status()))
+                && !"COMPLETED".equals(encounter.getStatus())) {
+            // 접수 취소 이벤트는 기존 진료건에 반영한다. 이미 진료완료된 건은 취소로 되돌리지 않고,
+            // 그 외 상태(접수/대기)는 OPD가 관리하므로 재수신해도 덮어쓰지 않는다.
+            encounter.setStatus("CANCELLED");
         }
 
         encounter.setPatientId(data.patientId());
@@ -55,6 +60,8 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
         encounter.setDepartmentCode(data.departmentCode());
         encounter.setDoctorId(data.doctorId());
         encounter.setVisitReason(data.visitReason());
+        encounter.setVisitType(data.visitType());
+        encounter.setReceptionType(data.receptionType());
         encounter.setUpdatedAt(LocalDateTime.now());
 
         encounterRepository.save(encounter);
@@ -75,11 +82,11 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
         };
     }
 
-    // 당일 외래 환자 목록 조회
+    // 당일 외래 환자 목록 조회 (접수 순)
     @Override
     @Transactional(readOnly = true)
     public List<EncounterDto> getTodayEncounters() {
-        List<Encounter> encounters = encounterRepository.findByVisitDate(LocalDate.now());
+        List<Encounter> encounters = encounterRepository.findByVisitDateOrderByCreatedAtAsc(LocalDate.now());
 
         Map<String, PatientApiDto.PatientSummary> patientMap = Collections.emptyMap();
         List<String> patientIds = encounters.stream()
@@ -112,6 +119,28 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
                     .ifPresent(dto::setDepartmentName);
         }
         return result;
+    }
+
+    // 환자의 외래 진료 이력 조회 (접수 초진/재진 판정용)
+    // 진료기록이 있는 외래건만 이력으로 보고(대기/취소 건·비활성화된 기록은 제외), 오늘 건도 포함한다
+    @Override
+    @Transactional(readOnly = true)
+    public VisitHistoryDto getVisitHistory(String patientId, String departmentCode, Integer withinDays) {
+        if (patientId == null || patientId.isBlank()) {
+            // 환자 ID는 필수입니다.
+            throw new BusinessException(ErrorCode.INVALID_INPUT, "patientId is required.");
+        }
+        if (withinDays != null && withinDays <= 0) {
+            // 조회 기간(일)은 1 이상이어야 합니다.
+            throw new BusinessException(ErrorCode.INVALID_INPUT, "withinDays must be greater than 0.");
+        }
+
+        LocalDate from = withinDays == null ? LocalDate.of(1900, 1, 1) : LocalDate.now().minusDays(withinDays);
+        LocalDate lastVisitDate = (departmentCode == null || departmentCode.isBlank())
+                ? medicalRecordRepository.findLastVisitDate(patientId, from)
+                : medicalRecordRepository.findLastVisitDateByDepartment(patientId, departmentCode, from);
+
+        return new VisitHistoryDto(lastVisitDate != null, lastVisitDate);
     }
 
     // 진료기록 목록 조회
@@ -155,6 +184,7 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
                 }
                 dto.setPatientName(rawName);
             }
+            fillDepartmentName(dto);
         }
 
         // 환자명/환자번호/주호소 세팅이 완료된 후 자바 Stream 필터링 수행
@@ -197,7 +227,15 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
             }
         }
 
+        fillDepartmentName(dto);
+
         return dto;
+    }
+
+    // 진료과 코드 -> 진료과명 (ADM 공통코드 DEPT_CD). 미등록이거나 캐시 적재 전이면 null로 둔다
+    private void fillDepartmentName(MedicalRecordDto dto) {
+        commonCodeCache.findCodeName("DEPT_CD", dto.getDepartmentCode())
+                .ifPresent(dto::setDepartmentName);
     }
 
     // 진료기록 등록
@@ -221,6 +259,20 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
         }
 
 
+
+        // 접수가 취소된 진료건에는 진료기록을 작성할 수 없다
+        if ("CANCELLED".equals(encounter.getStatus())) {
+            // 취소된 접수 건에는 진료기록을 작성할 수 없습니다.
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Cannot create a medical record for a cancelled encounter. encounterId=" + encounter.getEncounterId());
+        }
+
+        // 이미 진료기록을 작성해 진료완료된 건에는 다시 작성할 수 없다 (내용 변경은 진료기록 수정 API 사용)
+        if ("COMPLETED".equals(encounter.getStatus())) {
+            // 이미 진료가 완료된 건입니다.
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Medical record already exists for a completed encounter. encounterId=" + encounter.getEncounterId());
+        }
 
         // 요청 DTO를 엔티티로 변환 및 값 세팅
         MedicalRecord record = new MedicalRecord();
@@ -246,6 +298,12 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
 
         // DB에 저장
         MedicalRecord savedRecord = medicalRecordRepository.save(record);
+
+        // 진료기록을 저장하면 외래 진료건을 진료완료로 변경
+        encounter.setStatus("COMPLETED");
+        encounter.setEndedAt(now);
+        encounter.setUpdatedAt(now);
+        encounterRepository.save(encounter);
 
         log.info("진료기록 등록 완료 recordId={}, encounterId={}",
                 savedRecord.getRecordId(), encounter.getEncounterId());

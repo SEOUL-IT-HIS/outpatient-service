@@ -15,6 +15,8 @@ public interface OutpatientCareMapper {
     // 진료기록 차트 변환
     @Mapping(target = "encounterId", source = "encounter.encounterId")
     @Mapping(target = "patientId", source = "encounter.patientId")
+    @Mapping(target = "visitType", source = "encounter.visitType")
+    @Mapping(target = "departmentCode", source = "encounter.departmentCode")
     @Mapping(target = "doctorName", ignore = true)
     @Mapping(target = "departmentName", ignore = true)
     @Mapping(target = "patientName", ignore = true)

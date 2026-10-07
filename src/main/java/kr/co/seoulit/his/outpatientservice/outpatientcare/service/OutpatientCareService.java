@@ -27,4 +27,7 @@ public interface OutpatientCareService {
 
     // 당일 외래 환자 목록 조회
     List<EncounterDto> getTodayEncounters();
+
+    // 환자의 외래 진료 이력 조회 (접수 초진/재진 판정용). departmentCode, withinDays는 선택(없으면 진료과 무관/기간 제한 없음)
+    VisitHistoryDto getVisitHistory(String patientId, String departmentCode, Integer withinDays);
 }
