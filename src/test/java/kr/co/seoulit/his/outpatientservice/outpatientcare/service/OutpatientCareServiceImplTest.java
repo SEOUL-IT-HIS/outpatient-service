@@ -216,8 +216,22 @@ class OutpatientCareServiceImplTest {
     }
 
     @Test
-    void 진료기록을_저장하면_외래_진료건이_진료완료로_바뀐다() {
+    void 대기중인_진료건에는_진료를_시작하기_전에_진료기록을_저장할_수_없다() {
         Encounter encounter = encounterWithStatus("WAITING");
+        MedicalRecordCreateDto request = new MedicalRecordCreateDto();
+        request.setEncounterId("ENC-1");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.createRecord(request))
+                .isInstanceOf(kr.co.seoulit.his.outpatientservice.common.exception.BusinessException.class);
+
+        assertThat(encounter.getStatus()).isEqualTo("WAITING");
+        org.mockito.Mockito.verify(medicalRecordRepository, org.mockito.Mockito.never())
+                .save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void 진료기록을_저장하면_외래_진료건이_진료완료로_바뀐다() {
+        Encounter encounter = encounterWithStatus("IN_PROGRESS");
         MedicalRecordCreateDto request = new MedicalRecordCreateDto();
         request.setEncounterId("ENC-1");
 
@@ -252,6 +266,97 @@ class OutpatientCareServiceImplTest {
         assertThat(encounter.getStatus()).isEqualTo("CANCELLED");
         org.mockito.Mockito.verify(medicalRecordRepository, org.mockito.Mockito.never())
                 .save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void 진료_중인_건은_접수_취소_이벤트가_와도_취소로_바꾸지_않는다() {
+        Encounter existing = new Encounter();
+        existing.setEncounterId("ENC-1");
+        existing.setStatus("IN_PROGRESS");
+        when(encounterRepository.findByReceptionId("RCP-1")).thenReturn(Optional.of(existing));
+
+        service.registerEncounter(cancelEvent());
+
+        assertThat(savedEncounter().getStatus()).isEqualTo("IN_PROGRESS");
+    }
+
+    @Test
+    void 진료를_시작하면_대기중이_진료중으로_바뀌고_시작일시가_채워진다() {
+        Encounter encounter = encounterWithStatus("WAITING");
+
+        service.startConsultation("ENC-1");
+
+        assertThat(encounter.getStatus()).isEqualTo("IN_PROGRESS");
+        assertThat(encounter.getStartedAt()).isNotNull();
+        verify(encounterRepository).save(encounter);
+    }
+
+    @Test
+    void 이미_진료중인_건을_다시_시작해도_그대로_진료중이다() {
+        Encounter encounter = encounterWithStatus("IN_PROGRESS");
+
+        service.startConsultation("ENC-1");
+
+        assertThat(encounter.getStatus()).isEqualTo("IN_PROGRESS");
+        org.mockito.Mockito.verify(encounterRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void 취소되었거나_진료완료된_건은_진료를_시작할_수_없다() {
+        for (String status : List.of("CANCELLED", "COMPLETED")) {
+            Encounter encounter = encounterWithStatus(status);
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.startConsultation("ENC-1"))
+                    .isInstanceOf(kr.co.seoulit.his.outpatientservice.common.exception.BusinessException.class);
+
+            assertThat(encounter.getStatus()).isEqualTo(status);
+        }
+    }
+
+    @Test
+    void 진료_시작을_취소하면_진료중이_대기중으로_돌아가고_시작일시가_비워진다() {
+        Encounter encounter = encounterWithStatus("IN_PROGRESS");
+        encounter.setStartedAt(java.time.LocalDateTime.now());
+
+        service.cancelStartConsultation("ENC-1");
+
+        assertThat(encounter.getStatus()).isEqualTo("WAITING");
+        assertThat(encounter.getStartedAt()).isNull();
+    }
+
+    @Test
+    void 진료완료된_건은_진료_시작을_취소할_수_없다() {
+        Encounter encounter = encounterWithStatus("COMPLETED");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.cancelStartConsultation("ENC-1"))
+                .isInstanceOf(kr.co.seoulit.his.outpatientservice.common.exception.BusinessException.class);
+
+        assertThat(encounter.getStatus()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void 접수ID로_조회하면_진료중_여부를_알려준다() {
+        Encounter encounter = new Encounter();
+        encounter.setEncounterId("ENC-1");
+        encounter.setReceptionId("RCP-1");
+        encounter.setStatus("IN_PROGRESS");
+        when(encounterRepository.findByReceptionId("RCP-1")).thenReturn(Optional.of(encounter));
+
+        var result = service.getEncounterStatusByReception("RCP-1");
+
+        assertThat(result.isInProgress()).isTrue();
+        assertThat(result.getStatus()).isEqualTo("IN_PROGRESS");
+    }
+
+    @Test
+    void 대기중인_접수는_진료중이_아니라고_알려준다() {
+        Encounter encounter = new Encounter();
+        encounter.setEncounterId("ENC-1");
+        encounter.setReceptionId("RCP-1");
+        encounter.setStatus("WAITING");
+        when(encounterRepository.findByReceptionId("RCP-1")).thenReturn(Optional.of(encounter));
+
+        assertThat(service.getEncounterStatusByReception("RCP-1").isInProgress()).isFalse();
     }
 
     @Test

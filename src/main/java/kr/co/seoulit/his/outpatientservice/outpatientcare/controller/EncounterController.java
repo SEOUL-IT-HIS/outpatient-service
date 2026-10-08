@@ -2,10 +2,13 @@ package kr.co.seoulit.his.outpatientservice.outpatientcare.controller;
 
 import kr.co.seoulit.his.outpatientservice.common.ApiResponse;
 import kr.co.seoulit.his.outpatientservice.outpatientcare.dto.EncounterDto;
+import kr.co.seoulit.his.outpatientservice.outpatientcare.dto.EncounterStatusDto;
 import kr.co.seoulit.his.outpatientservice.outpatientcare.dto.VisitHistoryDto;
 import kr.co.seoulit.his.outpatientservice.outpatientcare.service.OutpatientCareService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -37,5 +40,24 @@ public class EncounterController {
             @RequestParam(required = false) Integer withinDays
     ) {
         return ApiResponse.success(outpatientCareService.getVisitHistory(patientId, departmentCode, withinDays));
+    }
+
+    // 진료 시작 POST /api/outpatient/encounters/{encounterId}/start (대기중 -> 진료중)
+    @PostMapping("/{encounterId}/start")
+    public ApiResponse<EncounterDto> startConsultation(@PathVariable String encounterId) {
+        return ApiResponse.success(outpatientCareService.startConsultation(encounterId));
+    }
+
+    // 진료 시작 취소 POST /api/outpatient/encounters/{encounterId}/cancel-start (진료중 -> 대기중)
+    @PostMapping("/{encounterId}/cancel-start")
+    public ApiResponse<EncounterDto> cancelStartConsultation(@PathVariable String encounterId) {
+        return ApiResponse.success(outpatientCareService.cancelStartConsultation(encounterId));
+    }
+
+    // 접수 ID로 진료 상태 조회 GET /api/outpatient/encounters/by-reception/{receptionId}/status
+    // 접수(RCP)가 접수 취소 직전에 진료 중인지(inProgress) 확인할 때 서버 간 호출한다. 외래에 없는 접수면 404.
+    @GetMapping("/by-reception/{receptionId}/status")
+    public ApiResponse<EncounterStatusDto> getEncounterStatusByReception(@PathVariable String receptionId) {
+        return ApiResponse.success(outpatientCareService.getEncounterStatusByReception(receptionId));
     }
 }

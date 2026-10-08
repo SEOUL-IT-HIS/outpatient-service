@@ -48,11 +48,15 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
             encounter.setStatus(translateReceptionStatus(data.status()));
             encounter.setVisitDate(data.visitDate());
             encounter.setCreatedAt(LocalDateTime.now());
-        } else if ("CANCELLED".equals(translateReceptionStatus(data.status()))
-                && !"COMPLETED".equals(encounter.getStatus())) {
-            // 접수 취소 이벤트는 기존 진료건에 반영한다. 이미 진료완료된 건은 취소로 되돌리지 않고,
+        } else if ("CANCELLED".equals(translateReceptionStatus(data.status()))) {
+            // 접수 취소 이벤트는 기존 진료건에 반영한다. 이미 진료완료된 건과 진료 중인 건은 취소로 되돌리지 않고,
             // 그 외 상태(접수/대기)는 OPD가 관리하므로 재수신해도 덮어쓰지 않는다.
-            encounter.setStatus("CANCELLED");
+            if ("COMPLETED".equals(encounter.getStatus()) || "IN_PROGRESS".equals(encounter.getStatus())) {
+                log.warn("진료 중이거나 완료된 건이라 접수 취소를 반영하지 않음 receptionId={}, status={}",
+                        data.receptionId(), encounter.getStatus());
+            } else {
+                encounter.setStatus("CANCELLED");
+            }
         }
 
         encounter.setPatientId(data.patientId());
@@ -80,6 +84,70 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
             case "CANCELLED" -> "CANCELLED";
             default -> rcpStatus;
         };
+    }
+
+    // 진료 시작 (대기중 -> 진료중)
+    @Override
+    public EncounterDto startConsultation(String encounterId) {
+        Encounter encounter = findEncounter(encounterId);
+
+        if ("IN_PROGRESS".equals(encounter.getStatus())) {
+            return outpatientCareMapper.toEncounterDto(encounter);
+        }
+        if (!"WAITING".equals(encounter.getStatus()) && !"PENDING".equals(encounter.getStatus())) {
+            // 대기중인 건만 진료를 시작할 수 있습니다.
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Only a waiting encounter can be started. encounterId=" + encounterId + ", status=" + encounter.getStatus());
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        encounter.setStatus("IN_PROGRESS");
+        encounter.setStartedAt(now);
+        encounter.setUpdatedAt(now);
+        encounterRepository.save(encounter);
+
+        log.info("진료 시작 encounterId={}, receptionId={}", encounterId, encounter.getReceptionId());
+        return outpatientCareMapper.toEncounterDto(encounter);
+    }
+
+    // 진료 시작 취소 (진료중 -> 대기중)
+    @Override
+    public EncounterDto cancelStartConsultation(String encounterId) {
+        Encounter encounter = findEncounter(encounterId);
+
+        if ("WAITING".equals(encounter.getStatus())) {
+            return outpatientCareMapper.toEncounterDto(encounter);
+        }
+        if (!"IN_PROGRESS".equals(encounter.getStatus())) {
+            // 진료 중인 건만 진료 시작을 취소할 수 있습니다.
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Only an in-progress encounter can be reverted. encounterId=" + encounterId + ", status=" + encounter.getStatus());
+        }
+
+        encounter.setStatus("WAITING");
+        encounter.setStartedAt(null);
+        encounter.setUpdatedAt(LocalDateTime.now());
+        encounterRepository.save(encounter);
+
+        log.info("진료 시작 취소 encounterId={}, receptionId={}", encounterId, encounter.getReceptionId());
+        return outpatientCareMapper.toEncounterDto(encounter);
+    }
+
+    // 접수 ID로 진료 상태 조회 (접수가 취소 전에 확인). 외래에 아직 없는 접수면 NOT_FOUND
+    @Override
+    @Transactional(readOnly = true)
+    public EncounterStatusDto getEncounterStatusByReception(String receptionId) {
+        Encounter encounter = encounterRepository.findByReceptionId(receptionId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
+                        "Outpatient encounter not found. receptionId=" + receptionId));
+        return new EncounterStatusDto(encounter.getReceptionId(), encounter.getEncounterId(),
+                encounter.getStatus(), "IN_PROGRESS".equals(encounter.getStatus()));
+    }
+
+    private Encounter findEncounter(String encounterId) {
+        return encounterRepository.findById(encounterId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
+                        "Outpatient encounter not found. ID=" + encounterId));
     }
 
     // 당일 외래 환자 목록 조회 (접수 순)
@@ -272,6 +340,14 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
             // 이미 진료가 완료된 건입니다.
             throw new BusinessException(ErrorCode.CONFLICT,
                     "Medical record already exists for a completed encounter. encounterId=" + encounter.getEncounterId());
+        }
+
+        // 진료를 시작(진료중)한 건에만 진료기록을 작성할 수 있다
+        if (!"IN_PROGRESS".equals(encounter.getStatus())) {
+            // 진료를 먼저 시작해야 합니다.
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Start the consultation before creating a medical record. encounterId=" + encounter.getEncounterId()
+                            + ", status=" + encounter.getStatus());
         }
 
         // 요청 DTO를 엔티티로 변환 및 값 세팅

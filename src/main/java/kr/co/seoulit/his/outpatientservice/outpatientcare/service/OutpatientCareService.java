@@ -28,6 +28,15 @@ public interface OutpatientCareService {
     // 당일 외래 환자 목록 조회
     List<EncounterDto> getTodayEncounters();
 
+    // 진료 시작 (대기중 -> 진료중). 이미 진료중이면 그대로 돌려준다
+    EncounterDto startConsultation(String encounterId);
+
+    // 진료 시작 취소 (진료중 -> 대기중). 진료기록 저장 없이 진료를 그만둘 때 쓴다
+    EncounterDto cancelStartConsultation(String encounterId);
+
+    // 접수 ID로 진료 상태 조회 (접수가 취소 전에 진료 중인지 확인할 때 서버 간 호출)
+    EncounterStatusDto getEncounterStatusByReception(String receptionId);
+
     // 환자의 외래 진료 이력 조회 (접수 초진/재진 판정용). departmentCode, withinDays는 선택(없으면 진료과 무관/기간 제한 없음)
     VisitHistoryDto getVisitHistory(String patientId, String departmentCode, Integer withinDays);
 }
