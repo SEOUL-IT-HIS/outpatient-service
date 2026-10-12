@@ -23,4 +23,4 @@ outpatient-service
 
 - 진료기록 등록/수정, 진단, 진단서, 진료 종료
 - 처방코어(`/api/orders`) — Modular Monolith로 같은 서비스에 둘 예정
-- 검사결과/PACS, 원외처방전, 협진/수술의뢰/입원요청
+- 검사결과/PACS, 원외처방전, 협진/입원요청

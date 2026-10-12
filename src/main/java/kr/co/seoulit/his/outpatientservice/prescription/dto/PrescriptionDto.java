@@ -19,12 +19,17 @@ public class PrescriptionDto {
     private String prescribedBy;        // 처방자 ID
     private LocalDateTime cancelledAt;  // 취소일시
     private String cancelReason;        // 취소사유
-    private String orderMethod;         // 처방유형
+    private String orderMethod;         // 처방유형코드 (ADM 공통코드 ORDER_METHOD_CD 의 codeValue)
+    private String orderMethodName;     // 처방유형명 (ADM 공통코드 ORDER_METHOD_CD 연동)
     private String admissionId;         // 입원 ID
+    private String receptionId;         // 접수 ID (응급 경로 전용)
+    private String departmentCode;      // 처방과 코드 (입원/응급 경로 전용)
 
-    private String priorityCode;        // 우선순위코드 (ROUTINE/URGENT/STAT)
-    private String timingCode;          // 처방패턴코드 (SCHEDULED/PRN/ONCE)
-    private String verbalYn;            // 구두처방여부 (Y/N)
+    private String priorityCode;        // 우선순위코드 (ADM 공통코드 ORDER_PRIORITY_CD 의 codeValue)
+    private String priorityName;        // 우선순위명 (ADM 공통코드 ORDER_PRIORITY_CD 연동)
+    private String timingCode;          // 처방패턴코드 (ADM 공통코드 ORDER_TIMING_CD 의 codeValue)
+    private String timingName;          // 처방패턴명 (ADM 공통코드 ORDER_TIMING_CD 연동)
+    private String verbalYn;           // 구두처방여부 (Y/N)
     private LocalDateTime verbalConfirmedAt; // 구두처방확정일시
     private String verbalConfirmedBy;   // 구두처방확정자 ID
     private String recorderId;          // 입력자 ID
@@ -40,4 +45,12 @@ public class PrescriptionDto {
 
     private String pharmacySendStatus;       // 약제실 전송 상태 (PENDING/SENT/FAILED)
     private LocalDateTime pharmacySentAt;    // 약제실 전송 일시
+
+    // 검사 전송 상태 요약 (목록 조회에서 receptionId 지정 시에만 채움) — 하나라도 FAILED면 FAILED,
+    // 아니면 하나라도 PENDING/미전송이면 PENDING, 전부 SENT면 SENT. 검사 항목이 없으면 null.
+    private String labSendStatus;
+
+    // 검사 결과 도착 상태 요약 (목록 조회에서 receptionId 지정 시에만 채움) — 결과가 하나라도 왔으면 COMPLETE,
+    // 하나도 안 왔으면 WAITING (일부만 온 경우도 COMPLETE로 봄, 전체 도착 여부는 구분하지 않음). 검사 항목이 없으면 null.
+    private String labResultStatus;
 }

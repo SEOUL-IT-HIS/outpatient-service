@@ -14,11 +14,10 @@ import org.springframework.web.client.RestClientException;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * Patient(PAT) Consumer.
@@ -29,6 +28,9 @@ import java.util.stream.Collectors;
 @Component
 @ConditionalOnProperty(name = "app.services.patient.stub-enabled", havingValue = "false", matchIfMissing = true)
 public class PatientClientImpl implements PatientClient {
+
+    // PAT POST /api/patient/batch 1회 최대 건수 (통합 카탈로그 기준)
+    private static final int BATCH_MAX_SIZE = 100;
 
     private final RestClient patientRestClient;
     private final ObjectMapper objectMapper;
@@ -65,19 +67,28 @@ public class PatientClientImpl implements PatientClient {
             return Collections.emptyMap();
         }
         List<String> distinctIds = patientIds.stream().distinct().toList();
+        Map<String, PatientApiDto.PatientSummary> result = new HashMap<>();
+        // PAT batch는 1회 최대 100건 — 초과분은 나눠서 호출한다
+        for (int from = 0; from < distinctIds.size(); from += BATCH_MAX_SIZE) {
+            List<String> chunk = distinctIds.subList(from, Math.min(from + BATCH_MAX_SIZE, distinctIds.size()));
+            fetchBatch(chunk).forEach(p -> result.putIfAbsent(p.patientId(), p));
+        }
+        return result;
+    }
+
+    private List<PatientApiDto.PatientSummary> fetchBatch(List<String> ids) {
         try {
             JsonNode body = patientRestClient.post()
                     .uri("/api/patient/batch")
-                    .body(new PatientApiDto.BatchQueryRequest(distinctIds))
+                    .body(new PatientApiDto.BatchQueryRequest(List.copyOf(ids)))
                     .retrieve()
                     .body(JsonNode.class);
 
-            List<PatientApiDto.PatientSummary> patients = extractList(body);
-            return patients.stream()
+            return extractList(body).stream()
                     .filter(p -> p.patientId() != null)
-                    .collect(Collectors.toMap(PatientApiDto.PatientSummary::patientId, Function.identity(), (a, b) -> a));
+                    .toList();
         } catch (RestClientException ex) {
-            log.warn("[PAT] batch-query failed ids={}, message={}", distinctIds, ex.getMessage());
+            log.warn("[PAT] batch-query failed ids={}, message={}", ids, ex.getMessage());
             // 환자 서비스 일괄 조회에 실패했습니다.
             throw new BusinessException(ErrorCode.EXTERNAL_API_ERROR, "Failed to batch-fetch patient information.");
         }

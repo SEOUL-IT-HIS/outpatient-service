@@ -15,6 +15,8 @@ public interface OutpatientCareMapper {
     // 진료기록 차트 변환
     @Mapping(target = "encounterId", source = "encounter.encounterId")
     @Mapping(target = "patientId", source = "encounter.patientId")
+    @Mapping(target = "visitType", source = "encounter.visitType")
+    @Mapping(target = "departmentCode", source = "encounter.departmentCode")
     @Mapping(target = "doctorName", ignore = true)
     @Mapping(target = "departmentName", ignore = true)
     @Mapping(target = "patientName", ignore = true)
@@ -22,9 +24,12 @@ public interface OutpatientCareMapper {
 
     List<MedicalRecordDto> toRecordDtoList(List<MedicalRecord> entityList);
 
-    // 당일 환자 목록 변환 (환자명은 PAT 조회, 진료과명은 ADM 공통코드 조회 후 서비스 레이어에서 채움)
+    // 당일 환자 목록 변환 (환자명은 PAT 조회, 진료과명은 ADM 공통코드 조회 후 서비스 레이어에서 채움,
+    // 입원요청 상태는 입원요청 조회 후 컨트롤러에서 채움)
     @Mapping(target = "patientName", ignore = true)
     @Mapping(target = "departmentName", ignore = true)
+    @Mapping(target = "admissionRequestStatus", ignore = true)
+    @Mapping(target = "admissionRequestStatusName", ignore = true)
     EncounterDto toEncounterDto(Encounter entity);
 
     List<EncounterDto> toEncounterDtoList(List<Encounter> entityList);

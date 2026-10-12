@@ -20,10 +20,10 @@ public class PrescriptionItem {
     private String prescriptionId; // 처방 ID
 
     @Column(name = "PRESCRIPTION_TYPE", length = 36)
-    private String prescriptionType; // 처방 유형 (약품, 검사, 수술/처치 등)
+    private String prescriptionType; // 처방 유형 (약품, 검사)
 
     @Column(name = "ITEM_CODE", length = 36)
-    private String itemCode; // 약품/검사/수술 코드
+    private String itemCode; // 약품/검사 코드
 
     @Column(name = "ITEM_NAME", length = 100)
     private String itemName; // 항목 명칭
@@ -53,4 +53,22 @@ public class PrescriptionItem {
     private String rejectReason; // 검사오더 거절/실패 사유 (FAILED일 때만 값 존재)
 
     private String dosageFormCd;
+
+    @Column(name = "RESULT_VALUE", length = 200)
+    private String resultValue;
+
+    @Column(name = "RESULT_UNIT", length = 50)
+    private String resultUnit;
+
+    @Column(name = "REFERENCE_RANGE", length = 100)
+    private String referenceRange;
+
+    @Column(name = "ABNORMAL_FLAG", length = 10)
+    private String abnormalFlag;
+
+    @Column(name = "RESULT_REPORTED_AT")
+    private LocalDateTime resultReportedAt;
+
+    @Column(name = "RESULT_EVENT_ID", length = 36)
+    private String resultEventId; // 같은 eventId 재수신이면 중복으로 보고 스킵
 }

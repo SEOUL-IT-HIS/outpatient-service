@@ -27,6 +27,12 @@ public class KafkaConfig {
         return TopicBuilder.name(topic).partitions(PARTITIONS).replicas(REPLICAS).build();
     }
 
+    //검사 오더 취소 토픽
+    @Bean
+    public NewTopic labOrderCancelledTopic(@Value("${app.kafka.topics.lab-order-cancelled}") String topic) {
+        return TopicBuilder.name(topic).partitions(PARTITIONS).replicas(REPLICAS).build();
+    }
+
     //검사 결과 회신 토픽
     @Bean
     public NewTopic labOrderResultedTopic(@Value("${app.kafka.topics.lab-order-resulted}") String topic) {
@@ -41,5 +47,11 @@ public class KafkaConfig {
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaTemplate);
         //만약 메시지 처리에 실패하면 1초간격으로 최대 3번까지 재시도해도 실패하면 DLT토픽으로 넘김
         return new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 3L));
+    }
+
+    //검사 결과 보고 토픽
+    @Bean
+    public NewTopic labResultReportedTopic(@Value("${app.kafka.topics.lab-result-reported}") String topic) {
+        return TopicBuilder.name(topic).partitions(PARTITIONS).replicas(REPLICAS).build();
     }
 }

@@ -35,6 +35,182 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
     private final PatientClient patientClient;
     private final CommonCodeCache commonCodeCache;
 
+
+    // 접수(RCP) 이벤트 수신 시 Encounter 생성/갱신
+    @Override
+    public void registerEncounter(ReceptionEventDto.ReceptionData data) {
+        Encounter encounter = encounterRepository.findByReceptionId(data.receptionId())
+                .orElseGet(Encounter::new);
+        boolean isNew = encounter.getEncounterId() == null;
+
+        if (isNew) {
+            encounter.setEncounterId(UUID.randomUUID().toString());
+            encounter.setStatus(translateReceptionStatus(data.status()));
+            encounter.setVisitDate(data.visitDate());
+            encounter.setCreatedAt(LocalDateTime.now());
+        } else if ("CANCELLED".equals(translateReceptionStatus(data.status()))) {
+            // 접수 취소 이벤트는 기존 진료건에 반영한다. 이미 진료완료된 건과 진료 중인 건은 취소로 되돌리지 않고,
+            // 그 외 상태(접수/대기)는 OPD가 관리하므로 재수신해도 덮어쓰지 않는다.
+            if ("COMPLETED".equals(encounter.getStatus()) || "IN_PROGRESS".equals(encounter.getStatus())) {
+                log.warn("진료 중이거나 완료된 건이라 접수 취소를 반영하지 않음 receptionId={}, status={}",
+                        data.receptionId(), encounter.getStatus());
+            } else {
+                encounter.setStatus("CANCELLED");
+            }
+        }
+
+        encounter.setPatientId(data.patientId());
+        encounter.setReceptionId(data.receptionId());
+        encounter.setDepartmentCode(data.departmentCode());
+        encounter.setDoctorId(data.doctorId());
+        encounter.setVisitReason(data.visitReason());
+        encounter.setVisitType(data.visitType());
+        encounter.setReceptionType(data.receptionType());
+        encounter.setUpdatedAt(LocalDateTime.now());
+
+        encounterRepository.save(encounter);
+
+        log.info("접수 이벤트로 Encounter {} encounterId={}, receptionId={}",
+                isNew ? "생성" : "갱신", encounter.getEncounterId(), data.receptionId());
+    }
+
+    //접수서비스의 상태를 외래 서비스 용어로 바꿈(접수완료->대기중)
+    private String translateReceptionStatus(String rcpStatus) {
+        if (rcpStatus == null) {
+            return "WAITING";
+        }
+        return switch (rcpStatus) {
+            case "RECEPTION" -> "WAITING";
+            case "CANCELLED" -> "CANCELLED";
+            default -> rcpStatus;
+        };
+    }
+
+    // 진료 시작 (대기중 -> 진료중)
+    @Override
+    public EncounterDto startConsultation(String encounterId) {
+        Encounter encounter = findEncounter(encounterId);
+
+        if ("IN_PROGRESS".equals(encounter.getStatus())) {
+            return outpatientCareMapper.toEncounterDto(encounter);
+        }
+        if (!"WAITING".equals(encounter.getStatus()) && !"PENDING".equals(encounter.getStatus())) {
+            // 대기중인 건만 진료를 시작할 수 있습니다.
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Only a waiting encounter can be started. encounterId=" + encounterId + ", status=" + encounter.getStatus());
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        encounter.setStatus("IN_PROGRESS");
+        encounter.setStartedAt(now);
+        encounter.setUpdatedAt(now);
+        encounterRepository.save(encounter);
+
+        log.info("진료 시작 encounterId={}, receptionId={}", encounterId, encounter.getReceptionId());
+        return outpatientCareMapper.toEncounterDto(encounter);
+    }
+
+    // 진료 시작 취소 (진료중 -> 대기중)
+    @Override
+    public EncounterDto cancelStartConsultation(String encounterId) {
+        Encounter encounter = findEncounter(encounterId);
+
+        if ("WAITING".equals(encounter.getStatus())) {
+            return outpatientCareMapper.toEncounterDto(encounter);
+        }
+        if (!"IN_PROGRESS".equals(encounter.getStatus())) {
+            // 진료 중인 건만 진료 시작을 취소할 수 있습니다.
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Only an in-progress encounter can be reverted. encounterId=" + encounterId + ", status=" + encounter.getStatus());
+        }
+
+        encounter.setStatus("WAITING");
+        encounter.setStartedAt(null);
+        encounter.setUpdatedAt(LocalDateTime.now());
+        encounterRepository.save(encounter);
+
+        log.info("진료 시작 취소 encounterId={}, receptionId={}", encounterId, encounter.getReceptionId());
+        return outpatientCareMapper.toEncounterDto(encounter);
+    }
+
+    // 접수 ID로 진료 상태 조회 (접수가 취소 전에 확인). 외래에 아직 없는 접수면 NOT_FOUND
+    @Override
+    @Transactional(readOnly = true)
+    public EncounterStatusDto getEncounterStatusByReception(String receptionId) {
+        Encounter encounter = encounterRepository.findByReceptionId(receptionId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
+                        "Outpatient encounter not found. receptionId=" + receptionId));
+        return new EncounterStatusDto(encounter.getReceptionId(), encounter.getEncounterId(),
+                encounter.getStatus(), "IN_PROGRESS".equals(encounter.getStatus()));
+    }
+
+    private Encounter findEncounter(String encounterId) {
+        return encounterRepository.findById(encounterId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
+                        "Outpatient encounter not found. ID=" + encounterId));
+    }
+
+    // 당일 외래 환자 목록 조회 (접수 순)
+    @Override
+    @Transactional(readOnly = true)
+    public List<EncounterDto> getTodayEncounters() {
+        List<Encounter> encounters = encounterRepository.findByVisitDateOrderByCreatedAtAsc(LocalDate.now());
+
+        Map<String, PatientApiDto.PatientSummary> patientMap = Collections.emptyMap();
+        List<String> patientIds = encounters.stream()
+                .map(Encounter::getPatientId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        if (!patientIds.isEmpty()) {
+            try {
+                patientMap = patientClient.getPatients(patientIds);
+            } catch (Exception e) {
+                log.error("조회 실패: {}", e.getMessage());
+            }
+        }
+
+        List<EncounterDto> result = outpatientCareMapper.toEncounterDtoList(encounters);
+        for (EncounterDto dto : result) {
+            PatientApiDto.PatientSummary patient = patientMap.get(dto.getPatientId());
+            if (patient != null) {
+                String rawName = patient.patientName();
+                if (rawName != null && rawName.startsWith("환자")) {
+                    rawName = rawName.substring(2);
+                }
+                dto.setPatientName(rawName);
+            }
+
+            // 진료과 코드 -> 진료과명 (ADM 공통코드 DEPT_CD)
+            commonCodeCache.findCodeName("DEPT_CD", dto.getDepartmentCode())
+                    .ifPresent(dto::setDepartmentName);
+        }
+        return result;
+    }
+
+    // 환자의 외래 진료 이력 조회 (접수 초진/재진 판정용)
+    // 진료기록이 있는 외래건만 이력으로 보고(대기/취소 건·비활성화된 기록은 제외), 오늘 건도 포함한다
+    @Override
+    @Transactional(readOnly = true)
+    public VisitHistoryDto getVisitHistory(String patientId, String departmentCode, Integer withinDays) {
+        if (patientId == null || patientId.isBlank()) {
+            // 환자 ID는 필수입니다.
+            throw new BusinessException(ErrorCode.INVALID_INPUT, "patientId is required.");
+        }
+        if (withinDays != null && withinDays <= 0) {
+            // 조회 기간(일)은 1 이상이어야 합니다.
+            throw new BusinessException(ErrorCode.INVALID_INPUT, "withinDays must be greater than 0.");
+        }
+
+        LocalDate from = withinDays == null ? LocalDate.of(1900, 1, 1) : LocalDate.now().minusDays(withinDays);
+        LocalDate lastVisitDate = (departmentCode == null || departmentCode.isBlank())
+                ? medicalRecordRepository.findLastVisitDate(patientId, from)
+                : medicalRecordRepository.findLastVisitDateByDepartment(patientId, departmentCode, from);
+
+        return new VisitHistoryDto(lastVisitDate != null, lastVisitDate);
+    }
+
     // 진료기록 목록 조회
     @Override
     @Transactional(readOnly = true)
@@ -76,6 +252,7 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
                 }
                 dto.setPatientName(rawName);
             }
+            fillDepartmentName(dto);
         }
 
         // 환자명/환자번호/주호소 세팅이 완료된 후 자바 Stream 필터링 수행
@@ -118,7 +295,15 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
             }
         }
 
+        fillDepartmentName(dto);
+
         return dto;
+    }
+
+    // 진료과 코드 -> 진료과명 (ADM 공통코드 DEPT_CD). 미등록이거나 캐시 적재 전이면 null로 둔다
+    private void fillDepartmentName(MedicalRecordDto dto) {
+        commonCodeCache.findCodeName("DEPT_CD", dto.getDepartmentCode())
+                .ifPresent(dto::setDepartmentName);
     }
 
     // 진료기록 등록
@@ -142,6 +327,28 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
         }
 
 
+
+        // 접수가 취소된 진료건에는 진료기록을 작성할 수 없다
+        if ("CANCELLED".equals(encounter.getStatus())) {
+            // 취소된 접수 건에는 진료기록을 작성할 수 없습니다.
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Cannot create a medical record for a cancelled encounter. encounterId=" + encounter.getEncounterId());
+        }
+
+        // 이미 진료기록을 작성해 진료완료된 건에는 다시 작성할 수 없다 (내용 변경은 진료기록 수정 API 사용)
+        if ("COMPLETED".equals(encounter.getStatus())) {
+            // 이미 진료가 완료된 건입니다.
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Medical record already exists for a completed encounter. encounterId=" + encounter.getEncounterId());
+        }
+
+        // 진료를 시작(진료중)한 건에만 진료기록을 작성할 수 있다
+        if (!"IN_PROGRESS".equals(encounter.getStatus())) {
+            // 진료를 먼저 시작해야 합니다.
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Start the consultation before creating a medical record. encounterId=" + encounter.getEncounterId()
+                            + ", status=" + encounter.getStatus());
+        }
 
         // 요청 DTO를 엔티티로 변환 및 값 세팅
         MedicalRecord record = new MedicalRecord();
@@ -167,6 +374,12 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
 
         // DB에 저장
         MedicalRecord savedRecord = medicalRecordRepository.save(record);
+
+        // 진료기록을 저장하면 외래 진료건을 진료완료로 변경
+        encounter.setStatus("COMPLETED");
+        encounter.setEndedAt(now);
+        encounter.setUpdatedAt(now);
+        encounterRepository.save(encounter);
 
         log.info("진료기록 등록 완료 recordId={}, encounterId={}",
                 savedRecord.getRecordId(), encounter.getEncounterId());
@@ -250,84 +463,4 @@ public class OutpatientCareServiceImpl implements OutpatientCareService {
         log.info("진료기록 비활성화 완료 recordId={}, 처리자={}", recordId, userId);
     }
 
-    // 접수(RCP) 이벤트 수신 시 Encounter 생성/갱신
-    @Override
-    public void registerEncounter(ReceptionEventDto.ReceptionData data) {
-        Encounter encounter = encounterRepository.findByReceptionId(data.receptionId())
-                .orElseGet(Encounter::new);
-        boolean isNew = encounter.getEncounterId() == null;
-
-        if (isNew) {
-            encounter.setEncounterId(UUID.randomUUID().toString());
-            encounter.setStatus(translateReceptionStatus(data.status()));
-            encounter.setVisitDate(data.visitDate());
-            encounter.setCreatedAt(LocalDateTime.now());
-        }
-
-        encounter.setPatientId(data.patientId());
-        encounter.setReceptionId(data.receptionId());
-        encounter.setDepartmentCode(data.departmentCode());
-        encounter.setDoctorId(data.doctorId());
-        encounter.setVisitReason(data.visitReason());
-        encounter.setUpdatedAt(LocalDateTime.now());
-
-        encounterRepository.save(encounter);
-
-        log.info("접수 이벤트로 Encounter {} encounterId={}, receptionId={}",
-                isNew ? "생성" : "갱신", encounter.getEncounterId(), data.receptionId());
-    }
-
-    // RCP가 보내는 상태값을 외래(OPD) 자체 상태 어휘로 변환.
-    // RCP는 등록 시 항상 "RECEPTION"만 이벤트로 보내고(상태변경은 이벤트 발행 안 함),
-    // 프론트 getStatusText()는 WAITING/IN_PROGRESS/COMPLETED만 알고 있어서 여기서 맞춰준다.
-    private String translateReceptionStatus(String rcpStatus) {
-        if (rcpStatus == null) {
-            return "WAITING";
-        }
-        return switch (rcpStatus) {
-            case "RECEPTION" -> "WAITING";
-            case "CANCELLED" -> "CANCELLED";
-            default -> rcpStatus;
-        };
-    }
-
-    // 당일 외래 환자 목록 조회
-    @Override
-    @Transactional(readOnly = true)
-    public List<EncounterDto> getTodayEncounters() {
-        List<Encounter> encounters = encounterRepository.findByVisitDate(LocalDate.now());
-
-        Map<String, PatientApiDto.PatientSummary> patientMap = Collections.emptyMap();
-        List<String> patientIds = encounters.stream()
-                .map(Encounter::getPatientId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .collect(Collectors.toList());
-
-        if (!patientIds.isEmpty()) {
-            try {
-                patientMap = patientClient.getPatients(patientIds);
-            } catch (Exception e) {
-                log.error("조회 실패: {}", e.getMessage());
-            }
-        }
-
-        List<EncounterDto> result = outpatientCareMapper.toEncounterDtoList(encounters);
-        for (EncounterDto dto : result) {
-            PatientApiDto.PatientSummary patient = patientMap.get(dto.getPatientId());
-            if (patient != null) {
-                String rawName = patient.patientName();
-                if (rawName != null && rawName.startsWith("환자")) {
-                    rawName = rawName.substring(2);
-                }
-                dto.setPatientName(rawName);
-            }
-
-            // 진료과 코드 -> 진료과명 (ADM 공통코드 DEPT_CD)
-            commonCodeCache.findCodeName("DEPT_CD", dto.getDepartmentCode())
-                    .ifPresent(dto::setDepartmentName);
-        }
-
-        return result;
-    }
 }

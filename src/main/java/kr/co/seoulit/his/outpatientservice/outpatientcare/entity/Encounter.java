@@ -39,6 +39,12 @@ public class Encounter {
     @Column(name = "VISIT_REASON", length = 500)
     private String visitReason; // 방문 사유 (RCP 접수 시 입력)
 
+    @Column(name = "VISIT_TYPE", length = 20)
+    private String visitType; // 초진/재진 (RCP 접수 시 입력, INITIAL / REVISIT, 기존 데이터는 null)
+
+    @Column(name = "RECEPTION_TYPE", length = 20)
+    private String receptionType; // 예약/당일 (RCP 접수 시 입력, RESERVATION / WALK_IN, 기존 데이터는 null)
+
     @Column(name = "STARTED_AT")
     private LocalDateTime startedAt; // 진료 시작 일시
 

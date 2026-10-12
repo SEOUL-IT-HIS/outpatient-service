@@ -25,6 +25,10 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.kafka:spring-kafka'
 
+    // 로그인 세션을 톰캣 메모리 대신 Redis에 저장
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.session:spring-session-data-redis'
+
     runtimeOnly 'com.oracle.database.jdbc:ojdbc11'
 
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.9'

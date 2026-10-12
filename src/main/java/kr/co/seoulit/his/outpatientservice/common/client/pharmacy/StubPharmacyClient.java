@@ -25,6 +25,7 @@ public class StubPharmacyClient implements PharmacyClient {
                 "02160",
                 "해열.진통.소염제",
                 "정제",
+                "01",
                 "흰색의 장방형 필름코팅정",
                 LocalDate.of(2001, 5, 15),
                 "645700210",
@@ -32,5 +33,11 @@ public class StubPharmacyClient implements PharmacyClient {
         );
 
         return List.of(sample);
+    }
+
+    @Override
+    public PharmacyApiDto.MedicationPage listMedications(String name, int page, int size) {
+        List<PharmacyApiDto.Medication> content = searchMedication(name);
+        return new PharmacyApiDto.MedicationPage(content, content.size(), 1, 0, size, true, true);
     }
 }

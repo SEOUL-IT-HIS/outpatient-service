@@ -11,7 +11,7 @@ public final class ReceptionEventDto {
     private ReceptionEventDto() {}
 
     public static final String EVENT_TYPE_REGISTERED = "ReceptionRegistered";
-    public static final String SCHEMA_VERSION = "1.0";
+    public static final String SCHEMA_VERSION = "1.1";
     public static final String SOURCE_RCP = "RCP";
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -33,6 +33,8 @@ public final class ReceptionEventDto {
             String doctorId,         // 담당의 ID
             LocalDate visitDate,     // 내원일
             String status,           // 초기 상태 (보통 WAITING)
-            String visitReason       // 방문 사유
+            String visitReason,      // 방문 사유
+            String visitType,        // 초진/재진 (INITIAL / REVISIT)
+            String receptionType     // 예약/당일 (RESERVATION / WALK_IN)
     ) {}
 }
