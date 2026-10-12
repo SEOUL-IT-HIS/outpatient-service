@@ -48,6 +48,9 @@ app:
     reception:
       # true면 접수 토픽 자동생성(ReceptionKafkaConfig) 활성화. RCP는 Kafka로만 통보하므로 REST 대안 없음
       messaging-enabled: ${RECEPTION_MESSAGING_ENABLED:false}
+    admission:
+      # true면 입원요청 토픽 자동생성(AdmissionKafkaConfig) + 병동 결과 회신 구독 + 입원요청 발행 활성화. 병동과는 Kafka로만 연동(REST 대안 없음)
+      messaging-enabled: ${ADMISSION_MESSAGING_ENABLED:false}
   kafka:
     topics:
       lab-order-requested: opd.lab-order.requested.v1
@@ -57,7 +60,10 @@ app:
       pharmacy-order-cancelled: opd.pharmacy-order.cancelled.v1
       reception-registered: outpatient-patient-daily-list
       lab-result-reported: lab.lab-result.reported.v1
+      admission-requested: opd.admission.requested.v1
+      admission-resulted: inpatient.opd-admission.result.v1
     consumer-group: outpatient-service.lab-order-resulted-consumer
+    admission-result-consumer-group: outpatient-service.admission-result-consumer
     reception-consumer-group: outpatient-service.reception-registered-consumer
     lab-result-consumer-group: outpatient-service.lab-result-reported-consumer
 

@@ -1,11 +1,14 @@
 package kr.co.seoulit.his.outpatientservice.outpatientcare.controller;
 
+import kr.co.seoulit.his.outpatientservice.admission.dto.AdmissionRequestDto;
+import kr.co.seoulit.his.outpatientservice.admission.service.AdmissionRequestService;
 import kr.co.seoulit.his.outpatientservice.common.ApiResponse;
 import kr.co.seoulit.his.outpatientservice.outpatientcare.dto.EncounterDto;
 import kr.co.seoulit.his.outpatientservice.outpatientcare.dto.EncounterStatusDto;
 import kr.co.seoulit.his.outpatientservice.outpatientcare.dto.VisitHistoryDto;
 import kr.co.seoulit.his.outpatientservice.outpatientcare.service.OutpatientCareService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,9 +16,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 //웹요청을 받아 json형태로 데이터를 반환하는컨트롤러임을 스프링에게 알려줌
+@Slf4j
 @RestController
 @RequestMapping("/api/outpatient/encounters")
 //service를 가져와서 연결해주도록 만드는 롬복기능
@@ -23,12 +31,41 @@ import java.util.List;
 public class EncounterController {
 
     private final OutpatientCareService outpatientCareService;
+    private final AdmissionRequestService admissionRequestService;
 
     // 당일 외래 환자/진료 목록 조회 GET /api/outpatient/encounters
     @GetMapping
     public ApiResponse<List<EncounterDto>> getEncounters() {
         List<EncounterDto> response = outpatientCareService.getTodayEncounters();
+        fillAdmissionRequestStatus(response);
         return ApiResponse.success(response);
+    }
+
+    // 목록 배지용: 진료별 최신 입원요청 상태를 한 번에 조회해서 채운다.
+    // 환자 목록의 본 기능이 아니라서, 조회에 실패해도 목록은 그대로(배지만 없이) 내려준다.
+    private void fillAdmissionRequestStatus(List<EncounterDto> encounters) {
+        List<String> encounterIds = encounters.stream()
+                .map(EncounterDto::getEncounterId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        if (encounterIds.isEmpty()) {
+            return;
+        }
+
+        Map<String, AdmissionRequestDto> latest = Collections.emptyMap();
+        try {
+            latest = admissionRequestService.getLatestAdmissionRequests(encounterIds);
+        } catch (Exception e) {
+            log.error("[입원요청 상태 조회 실패] 환자 목록 배지 없이 응답함: {}", e.getMessage());
+        }
+
+        for (EncounterDto encounter : encounters) {
+            AdmissionRequestDto admissionRequest = latest.get(encounter.getEncounterId());
+            if (admissionRequest != null) {
+                encounter.setAdmissionRequestStatus(admissionRequest.getRequestStatus());
+                encounter.setAdmissionRequestStatusName(admissionRequest.getRequestStatusName());
+            }
+        }
     }
 
     // 환자 외래 진료 이력 조회 GET /api/outpatient/encounters/visit-history?patientId=&departmentCode=&withinDays=

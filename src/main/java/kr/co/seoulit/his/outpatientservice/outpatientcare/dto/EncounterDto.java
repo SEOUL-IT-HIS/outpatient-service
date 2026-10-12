@@ -24,4 +24,8 @@ public class EncounterDto {
         private String visitType;        // 초진/재진 (INITIAL / REVISIT, 기존 데이터는 null)
         private String receptionType;    // 예약/당일 (RESERVATION / WALK_IN, 기존 데이터는 null)
         private LocalDateTime createdAt; // 등록 일시
+
+        // 목록 배지용 — 이 진료의 최신 입원요청 상태 (입원요청이 없으면 둘 다 null)
+        private String admissionRequestStatus;     // 입원요청 상태코드 (ADM 공통코드 ADMISSION_REQUEST_STATUS_CD: 01 요청됨/02 병상 배정/03 거부)
+        private String admissionRequestStatusName; // 입원요청 상태명 (ADM 공통코드 연동)
 }
