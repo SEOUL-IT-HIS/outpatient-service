@@ -24,6 +24,8 @@ app:
       - http://192.168.*:*
       - http://117.16.154.233:18080
       - http://seoulit.pe.kr:18080
+      - http://seoulit.pe.kr:18090
+      - http://117.16.154.233:18090
   service:
     code: OPD
     name: outpatient-service
@@ -80,7 +82,7 @@ spring:
   datasource:
     url: ${DB_URL:jdbc:oracle:thin:@seoulit.pe.kr:1521/FREEPDB1}
     username: ${DB_USERNAME:outpatient}
-    password: ${DB_PASSWORD:outpatient}
+    password: ${OUTPATIENT_DB_PASSWORD}
     driver-class-name: oracle.jdbc.OracleDriver
     hikari:
       pool-name: outpatient-hikari
