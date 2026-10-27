@@ -49,3 +49,8 @@ dependencies {
 tasks.named('test') {
     useJUnitPlatform()
 }
+
+// 로컬 전용 설정(application-local.yml)이 이미지(jar)에 들어가면 환경변수 설정이 무시되고 비밀번호가 노출될 수 있다
+bootJar {
+    exclude '**/application-local.yml'
+}
